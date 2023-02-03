@@ -35,6 +35,7 @@ const (
 	NodeArray
 	NodeList
 	NodeField
+	NodeParent
 	NodeIdentifier
 	NodeFilter
 	NodeInt
@@ -50,6 +51,7 @@ var NodeTypeName = map[NodeType]string{
 	NodeArray:      "NodeArray",
 	NodeList:       "NodeList",
 	NodeField:      "NodeField",
+	NodeParent:     "NodeParent",
 	NodeIdentifier: "NodeIdentifier",
 	NodeFilter:     "NodeFilter",
 	NodeInt:        "NodeInt",
@@ -68,11 +70,15 @@ type Node interface {
 // ListNode holds a sequence of nodes.
 type ListNode struct {
 	NodeType
-	Nodes []Node // The element nodes in lexical order.
+	Nodes  []Node // The element nodes in lexical order.
+	Parent interface{}
 }
 
-func newList() *ListNode {
-	return &ListNode{NodeType: NodeList}
+func newList(parent interface{}) *ListNode {
+	return &ListNode{
+		NodeType: NodeList,
+		Parent:   parent,
+	}
 }
 
 func (l *ListNode) append(n Node) {
@@ -86,11 +92,16 @@ func (l *ListNode) String() string {
 // TextNode holds plain text.
 type TextNode struct {
 	NodeType
-	Text string // The text; may span newlines.
+	Text   string // The text; may span newlines.
+	Parent interface{}
 }
 
-func newText(text string) *TextNode {
-	return &TextNode{NodeType: NodeText, Text: text}
+func newText(text string, parent interface{}) *TextNode {
+	return &TextNode{
+		NodeType: NodeText,
+		Text:     text,
+		Parent:   parent,
+	}
 }
 
 func (t *TextNode) String() string {
@@ -100,11 +111,16 @@ func (t *TextNode) String() string {
 // FieldNode holds field of struct
 type FieldNode struct {
 	NodeType
-	Value string
+	Value  string
+	Parent interface{}
 }
 
-func newField(value string) *FieldNode {
-	return &FieldNode{NodeType: NodeField, Value: value}
+func newField(value string, parent interface{}) *FieldNode {
+	return &FieldNode{
+		NodeType: NodeField,
+		Value:    value,
+		Parent:   parent,
+	}
 }
 
 func (f *FieldNode) String() string {
@@ -114,13 +130,15 @@ func (f *FieldNode) String() string {
 // IdentifierNode holds an identifier
 type IdentifierNode struct {
 	NodeType
-	Name string
+	Name   string
+	Parent interface{}
 }
 
-func newIdentifier(value string) *IdentifierNode {
+func newIdentifier(value string, parent interface{}) *IdentifierNode {
 	return &IdentifierNode{
 		NodeType: NodeIdentifier,
 		Name:     value,
+		Parent:   parent,
 	}
 }
 
@@ -139,12 +157,14 @@ type ParamsEntry struct {
 type ArrayNode struct {
 	NodeType
 	Params [3]ParamsEntry // start, end, step
+	Parent interface{}
 }
 
-func newArray(params [3]ParamsEntry) *ArrayNode {
+func newArray(params [3]ParamsEntry, parent interface{}) *ArrayNode {
 	return &ArrayNode{
 		NodeType: NodeArray,
 		Params:   params,
+		Parent:   parent,
 	}
 }
 
@@ -158,14 +178,16 @@ type FilterNode struct {
 	Left     *ListNode
 	Right    *ListNode
 	Operator string
+	Parent   interface{}
 }
 
-func newFilter(left, right *ListNode, operator string) *FilterNode {
+func newFilter(left, right *ListNode, operator string, parent interface{}) *FilterNode {
 	return &FilterNode{
 		NodeType: NodeFilter,
 		Left:     left,
 		Right:    right,
 		Operator: operator,
+		Parent:   parent,
 	}
 }
 
@@ -176,11 +198,16 @@ func (f *FilterNode) String() string {
 // IntNode holds integer value
 type IntNode struct {
 	NodeType
-	Value int
+	Value  int
+	Parent interface{}
 }
 
-func newInt(num int) *IntNode {
-	return &IntNode{NodeType: NodeInt, Value: num}
+func newInt(num int, parent interface{}) *IntNode {
+	return &IntNode{
+		NodeType: NodeInt,
+		Value:    num,
+		Parent:   parent,
+	}
 }
 
 func (i *IntNode) String() string {
@@ -190,11 +217,16 @@ func (i *IntNode) String() string {
 // FloatNode holds float value
 type FloatNode struct {
 	NodeType
-	Value float64
+	Value  float64
+	Parent interface{}
 }
 
-func newFloat(num float64) *FloatNode {
-	return &FloatNode{NodeType: NodeFloat, Value: num}
+func newFloat(num float64, parent interface{}) *FloatNode {
+	return &FloatNode{
+		NodeType: NodeFloat,
+		Value:    num,
+		Parent:   parent,
+	}
 }
 
 func (i *FloatNode) String() string {
@@ -204,10 +236,14 @@ func (i *FloatNode) String() string {
 // WildcardNode means a wildcard
 type WildcardNode struct {
 	NodeType
+	Parent interface{}
 }
 
-func newWildcard() *WildcardNode {
-	return &WildcardNode{NodeType: NodeWildcard}
+func newWildcard(parent interface{}) *WildcardNode {
+	return &WildcardNode{
+		NodeType: NodeWildcard,
+		Parent:   parent,
+	}
 }
 
 func (i *WildcardNode) String() string {
@@ -217,10 +253,14 @@ func (i *WildcardNode) String() string {
 // RecursiveNode means a recursive descent operator
 type RecursiveNode struct {
 	NodeType
+	Parent interface{}
 }
 
-func newRecursive() *RecursiveNode {
-	return &RecursiveNode{NodeType: NodeRecursive}
+func newRecursive(parent interface{}) *RecursiveNode {
+	return &RecursiveNode{
+		NodeType: NodeRecursive,
+		Parent:   parent,
+	}
 }
 
 func (r *RecursiveNode) String() string {
@@ -230,11 +270,16 @@ func (r *RecursiveNode) String() string {
 // UnionNode is union of ListNode
 type UnionNode struct {
 	NodeType
-	Nodes []*ListNode
+	Nodes  []*ListNode
+	Parent interface{}
 }
 
-func newUnion(nodes []*ListNode) *UnionNode {
-	return &UnionNode{NodeType: NodeUnion, Nodes: nodes}
+func newUnion(nodes []*ListNode, parent interface{}) *UnionNode {
+	return &UnionNode{
+		NodeType: NodeUnion,
+		Nodes:    nodes,
+		Parent:   parent,
+	}
 }
 
 func (u *UnionNode) String() string {
@@ -244,13 +289,35 @@ func (u *UnionNode) String() string {
 // BoolNode holds bool value
 type BoolNode struct {
 	NodeType
-	Value bool
+	Value  bool
+	Parent interface{}
 }
 
-func newBool(value bool) *BoolNode {
-	return &BoolNode{NodeType: NodeBool, Value: value}
+func newBool(value bool, parent interface{}) *BoolNode {
+	return &BoolNode{
+		NodeType: NodeBool,
+		Value:    value,
+		Parent:   parent,
+	}
 }
 
 func (b *BoolNode) String() string {
 	return fmt.Sprintf("%s: %t", b.Type(), b.Value)
+}
+
+// ParentNode
+type ParentNode struct {
+	NodeType
+	Parent interface{}
+}
+
+func newParent(parent interface{}) *ParentNode {
+	return &ParentNode{
+		NodeType: NodeParent,
+		Parent:   parent,
+	}
+}
+
+func (p *ParentNode) String() string {
+	return fmt.Sprintf("%s: %t", p.Type(), p.Parent)
 }

@@ -204,6 +204,8 @@ func (j *JSONPath) walk(value []reflect.Value, node Node) ([]reflect.Value, erro
 		return []reflect.Value{reflect.ValueOf(node.Text)}, nil
 	case *FieldNode:
 		return j.evalField(value, node)
+	case *ParentNode:
+		return j.evalParent(value, node)
 	case *ArrayNode:
 		return j.evalArray(value, node)
 	case *FilterNode:
@@ -428,6 +430,18 @@ func (j *JSONPath) evalField(input []reflect.Value, node *FieldNode) ([]reflect.
 		return results, fmt.Errorf("%s is not found", node.Value)
 	}
 	return results, nil
+}
+
+// evalParent evaluates parent of struct or key of map.
+func (j *JSONPath) evalParent(input []reflect.Value, node *ParentNode) ([]reflect.Value, error) {
+	parent := node.Parent
+	np := parent.(Node)
+
+	result := make([]reflect.Value, len(input))
+	for i := range input {
+		result[i] = reflect.ValueOf(np)
+	}
+	return result, nil
 }
 
 // evalWildcard extracts all contents of the given value
