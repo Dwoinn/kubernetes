@@ -70,14 +70,12 @@ type Node interface {
 // ListNode holds a sequence of nodes.
 type ListNode struct {
 	NodeType
-	Nodes  []Node // The element nodes in lexical order.
-	Parent interface{}
+	Nodes []Node // The element nodes in lexical order.
 }
 
-func newList(parent interface{}) *ListNode {
+func newList() *ListNode {
 	return &ListNode{
 		NodeType: NodeList,
-		Parent:   parent,
 	}
 }
 
@@ -92,15 +90,13 @@ func (l *ListNode) String() string {
 // TextNode holds plain text.
 type TextNode struct {
 	NodeType
-	Text   string // The text; may span newlines.
-	Parent interface{}
+	Text string // The text; may span newlines.
 }
 
-func newText(text string, parent interface{}) *TextNode {
+func newText(text string) *TextNode {
 	return &TextNode{
 		NodeType: NodeText,
 		Text:     text,
-		Parent:   parent,
 	}
 }
 
@@ -111,15 +107,13 @@ func (t *TextNode) String() string {
 // FieldNode holds field of struct
 type FieldNode struct {
 	NodeType
-	Value  string
-	Parent interface{}
+	Value string
 }
 
-func newField(value string, parent interface{}) *FieldNode {
+func newField(value string) *FieldNode {
 	return &FieldNode{
 		NodeType: NodeField,
 		Value:    value,
-		Parent:   parent,
 	}
 }
 
@@ -130,15 +124,13 @@ func (f *FieldNode) String() string {
 // IdentifierNode holds an identifier
 type IdentifierNode struct {
 	NodeType
-	Name   string
-	Parent interface{}
+	Name string
 }
 
-func newIdentifier(value string, parent interface{}) *IdentifierNode {
+func newIdentifier(value string) *IdentifierNode {
 	return &IdentifierNode{
 		NodeType: NodeIdentifier,
 		Name:     value,
-		Parent:   parent,
 	}
 }
 
@@ -157,14 +149,12 @@ type ParamsEntry struct {
 type ArrayNode struct {
 	NodeType
 	Params [3]ParamsEntry // start, end, step
-	Parent interface{}
 }
 
-func newArray(params [3]ParamsEntry, parent interface{}) *ArrayNode {
+func newArray(params [3]ParamsEntry) *ArrayNode {
 	return &ArrayNode{
 		NodeType: NodeArray,
 		Params:   params,
-		Parent:   parent,
 	}
 }
 
@@ -178,16 +168,14 @@ type FilterNode struct {
 	Left     *ListNode
 	Right    *ListNode
 	Operator string
-	Parent   interface{}
 }
 
-func newFilter(left, right *ListNode, operator string, parent interface{}) *FilterNode {
+func newFilter(left, right *ListNode, operator string) *FilterNode {
 	return &FilterNode{
 		NodeType: NodeFilter,
 		Left:     left,
 		Right:    right,
 		Operator: operator,
-		Parent:   parent,
 	}
 }
 
@@ -198,15 +186,13 @@ func (f *FilterNode) String() string {
 // IntNode holds integer value
 type IntNode struct {
 	NodeType
-	Value  int
-	Parent interface{}
+	Value int
 }
 
-func newInt(num int, parent interface{}) *IntNode {
+func newInt(num int) *IntNode {
 	return &IntNode{
 		NodeType: NodeInt,
 		Value:    num,
-		Parent:   parent,
 	}
 }
 
@@ -217,15 +203,13 @@ func (i *IntNode) String() string {
 // FloatNode holds float value
 type FloatNode struct {
 	NodeType
-	Value  float64
-	Parent interface{}
+	Value float64
 }
 
-func newFloat(num float64, parent interface{}) *FloatNode {
+func newFloat(num float64) *FloatNode {
 	return &FloatNode{
 		NodeType: NodeFloat,
 		Value:    num,
-		Parent:   parent,
 	}
 }
 
@@ -236,13 +220,11 @@ func (i *FloatNode) String() string {
 // WildcardNode means a wildcard
 type WildcardNode struct {
 	NodeType
-	Parent interface{}
 }
 
-func newWildcard(parent interface{}) *WildcardNode {
+func newWildcard() *WildcardNode {
 	return &WildcardNode{
 		NodeType: NodeWildcard,
-		Parent:   parent,
 	}
 }
 
@@ -253,13 +235,11 @@ func (i *WildcardNode) String() string {
 // RecursiveNode means a recursive descent operator
 type RecursiveNode struct {
 	NodeType
-	Parent interface{}
 }
 
-func newRecursive(parent interface{}) *RecursiveNode {
+func newRecursive() *RecursiveNode {
 	return &RecursiveNode{
 		NodeType: NodeRecursive,
-		Parent:   parent,
 	}
 }
 
@@ -270,15 +250,13 @@ func (r *RecursiveNode) String() string {
 // UnionNode is union of ListNode
 type UnionNode struct {
 	NodeType
-	Nodes  []*ListNode
-	Parent interface{}
+	Nodes []*ListNode
 }
 
-func newUnion(nodes []*ListNode, parent interface{}) *UnionNode {
+func newUnion(nodes []*ListNode) *UnionNode {
 	return &UnionNode{
 		NodeType: NodeUnion,
 		Nodes:    nodes,
-		Parent:   parent,
 	}
 }
 
@@ -289,15 +267,13 @@ func (u *UnionNode) String() string {
 // BoolNode holds bool value
 type BoolNode struct {
 	NodeType
-	Value  bool
-	Parent interface{}
+	Value bool
 }
 
-func newBool(value bool, parent interface{}) *BoolNode {
+func newBool(value bool) *BoolNode {
 	return &BoolNode{
 		NodeType: NodeBool,
 		Value:    value,
-		Parent:   parent,
 	}
 }
 
@@ -308,16 +284,14 @@ func (b *BoolNode) String() string {
 // ParentNode
 type ParentNode struct {
 	NodeType
-	Parent interface{}
 }
 
-func newParent(parent interface{}) *ParentNode {
+func newParent() *ParentNode {
 	return &ParentNode{
 		NodeType: NodeParent,
-		Parent:   parent,
 	}
 }
 
 func (p *ParentNode) String() string {
-	return fmt.Sprintf("%s: %t", p.Type(), p.Parent)
+	return fmt.Sprintf("%s: %t", p.Type())
 }
