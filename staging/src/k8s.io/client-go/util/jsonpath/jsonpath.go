@@ -78,6 +78,18 @@ func (j *JSONPath) Execute(wr io.Writer, data interface{}) error {
 	return nil
 }
 
+func addParent(obj interface{}, parent interface{}) []reflect.Value {
+	cur := []reflect.Value{reflect.ValueOf(obj)}
+
+	for _, v := range cur {
+		// Create a new field for the parent element
+		field := reflect.ValueOf("parent").Convert(reflect.TypeOf(parent))
+		// Add the parent field to the object
+		v.FieldByName("parent").Set(field)
+	}
+	return cur
+}
+
 func (j *JSONPath) FindResults(data interface{}) ([][]reflect.Value, error) {
 	if j.parser == nil {
 		return nil, fmt.Errorf("%s is an incomplete jsonpath template", j.name)
@@ -262,6 +274,9 @@ func (j *JSONPath) evalList(value []reflect.Value, node *ListNode) ([]reflect.Va
 	curValue := value
 	for _, node := range node.Nodes {
 		curValue, err = j.walk(curValue, node)
+		for _, v := range curValue {
+			addParent(v, value)
+		}
 		if err != nil {
 			return curValue, err
 		}
@@ -434,14 +449,14 @@ func (j *JSONPath) evalField(input []reflect.Value, node *FieldNode) ([]reflect.
 
 // evalParent evaluates parent of struct or key of map.
 func (j *JSONPath) evalParent(input []reflect.Value, node *ParentNode) ([]reflect.Value, error) {
-	parent := node.Parent
-	np := parent.(Node)
+	// parent := node.Parent
+	// np := parent.(Node)
 
-	result := make([]reflect.Value, len(input))
-	for i := range input {
-		result[i] = reflect.ValueOf(np)
-	}
-	return result, nil
+	// result := make([]reflect.Value, len(input))
+	// for i := range input {
+	// 	result[i] = reflect.ValueOf(np)
+	// }
+	return nil, nil
 }
 
 // evalWildcard extracts all contents of the given value
