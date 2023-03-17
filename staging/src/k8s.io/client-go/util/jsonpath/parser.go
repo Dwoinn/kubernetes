@@ -80,7 +80,7 @@ func parseAction(name, text string) (*Parser, error) {
 
 func (p *Parser) Parse(text string) error {
 	p.input = text
-	p.Root = newList(nil)
+	p.Root = newList()
 	p.pos = 0
 	return p.parseText(p.Root)
 }
@@ -121,7 +121,7 @@ func (p *Parser) parseText(cur *ListNode) error {
 	for {
 		if strings.HasPrefix(p.input[p.pos:], leftDelim) {
 			if p.pos > p.start {
-				cur.append(newText(p.consumeText(), cur))
+				cur.append(newText(p.consumeText()))
 			}
 			return p.parseLeftDelim(cur)
 		}
@@ -131,7 +131,7 @@ func (p *Parser) parseText(cur *ListNode) error {
 	}
 	// Correctly reached EOF.
 	if p.pos > p.start {
-		cur.append(newText(p.consumeText(), cur))
+		cur.append(newText(p.consumeText()))
 	}
 	return nil
 }
@@ -140,7 +140,7 @@ func (p *Parser) parseText(cur *ListNode) error {
 func (p *Parser) parseLeftDelim(cur *ListNode) error {
 	p.pos += len(leftDelim)
 	p.consumeText()
-	newNode := newList(cur)
+	newNode := newList()
 	cur.append(newNode)
 	cur = newNode
 	return p.parseInsideAction(cur)
@@ -210,9 +210,9 @@ func (p *Parser) parseIdentifier(cur *ListNode) error {
 			return fmt.Errorf("can not parse bool '%s': %s", value, err.Error())
 		}
 
-		cur.append(newBool(v, cur))
+		cur.append(newBool(v))
 	} else {
-		cur.append(newIdentifier(value, cur))
+		cur.append(newIdentifier(value))
 	}
 
 	return p.parseInsideAction(cur)
@@ -225,7 +225,7 @@ func (p *Parser) parseRecursive(cur *ListNode) error {
 	}
 	p.pos += len("..")
 	p.consumeText()
-	cur.append(newRecursive(cur))
+	cur.append(newRecursive())
 	if r := p.peek(); isAlphaNumeric(r) {
 		return p.parseField(cur)
 	}
@@ -248,12 +248,12 @@ func (p *Parser) parseNumber(cur *ListNode) error {
 	value := p.consumeText()
 	i, err := strconv.Atoi(value)
 	if err == nil {
-		cur.append(newInt(i, cur))
+		cur.append(newInt(i))
 		return p.parseInsideAction(cur)
 	}
 	d, err := strconv.ParseFloat(value, 64)
 	if err == nil {
-		cur.append(newFloat(d, cur))
+		cur.append(newFloat(d))
 		return p.parseInsideAction(cur)
 	}
 	return fmt.Errorf("cannot parse number %s", value)
@@ -287,7 +287,7 @@ Loop:
 			}
 			union = append(union, parser.Root)
 		}
-		cur.append(newUnion(union, cur))
+		cur.append(newUnion(union))
 		return p.parseInsideAction(cur)
 	}
 
@@ -337,7 +337,7 @@ Loop:
 			}
 		}
 	}
-	cur.append(newArray(params, cur))
+	cur.append(newArray(params))
 	return p.parseInsideAction(cur)
 }
 
@@ -386,7 +386,7 @@ Loop:
 		if err != nil {
 			return err
 		}
-		cur.append(newFilter(parser.Root, newList(cur), "exists", cur))
+		cur.append(newFilter(parser.Root, newList(), "exists"))
 	} else {
 		leftParser, err := parseAction("left", value[1])
 		if err != nil {
@@ -396,7 +396,7 @@ Loop:
 		if err != nil {
 			return err
 		}
-		cur.append(newFilter(leftParser.Root, rightParser.Root, value[2], cur))
+		cur.append(newFilter(leftParser.Root, rightParser.Root, value[2]))
 	}
 	return p.parseInsideAction(cur)
 }
@@ -420,7 +420,7 @@ Loop:
 	if err != nil {
 		return fmt.Errorf("unquote string %s error %v", value, err)
 	}
-	cur.append(newText(s, cur))
+	cur.append(newText(s))
 	return p.parseInsideAction(cur)
 }
 
@@ -431,9 +431,9 @@ func (p *Parser) parseField(cur *ListNode) error {
 	}
 	value := p.consumeText()
 	if value == "*" {
-		cur.append(newWildcard(cur))
+		cur.append(newWildcard())
 	} else {
-		cur.append(newField(strings.Replace(value, "\\", "", -1), cur))
+		cur.append(newField(strings.Replace(value, "\\", "", -1)))
 	}
 	return p.parseInsideAction(cur)
 }
@@ -441,8 +441,7 @@ func (p *Parser) parseField(cur *ListNode) error {
 // parseParent scans a parent until a terminator
 func (p *Parser) parseParent(cur *ListNode) error {
 	p.consumeText()
-	parent := cur.Parent
-	cur.append(newParent(parent))
+	cur.append(newParent())
 	return p.parseInsideAction(cur)
 }
 
