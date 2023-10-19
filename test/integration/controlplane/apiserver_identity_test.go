@@ -26,6 +26,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/crypto/cryptobyte"
+
 	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -45,9 +47,21 @@ const (
 	testLeaseName = "apiserver-lease-test"
 )
 
-func expectedAPIServerIdentity(hostname string) string {
-	hash := sha256.Sum256([]byte(hostname))
-	return "kube-apiserver-" + strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(hash[:16]))
+func expectedAPIServerIdentity(t *testing.T, hostname string) string {
+	b := cryptobyte.NewBuilder(nil)
+	b.AddUint16LengthPrefixed(func(b *cryptobyte.Builder) {
+		b.AddBytes([]byte(hostname))
+	})
+	b.AddUint16LengthPrefixed(func(b *cryptobyte.Builder) {
+		b.AddBytes([]byte("kube-apiserver"))
+	})
+	hashData, err := b.Bytes()
+	if err != nil {
+		t.Fatalf("error building hash data for apiserver identity: %v", err)
+	}
+
+	hash := sha256.Sum256(hashData)
+	return "apiserver-" + strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(hash[:16]))
 }
 
 func TestCreateLeaseOnStart(t *testing.T) {
@@ -84,8 +98,8 @@ func TestCreateLeaseOnStart(t *testing.T) {
 		}
 
 		lease := leases.Items[0]
-		if lease.Name != expectedAPIServerIdentity(hostname) {
-			return false, fmt.Errorf("unexpected apiserver identity, got: %v, expected: %v", lease.Name, expectedAPIServerIdentity(hostname))
+		if lease.Name != expectedAPIServerIdentity(t, hostname) {
+			return false, fmt.Errorf("unexpected apiserver identity, got: %v, expected: %v", lease.Name, expectedAPIServerIdentity(t, hostname))
 		}
 
 		if lease.Labels[corev1.LabelHostname] != hostname {
@@ -134,7 +148,7 @@ func TestLeaseGarbageCollection(t *testing.T) {
 	t.Run("expired non-identity lease should not be garbage collected",
 		testLeaseNotGarbageCollected(t, kubeclient, expiredLease))
 
-	// identity leases (with k8s.io/component label) created in user namespaces should not be GC'ed
+	// identity leases (with apiserver.kubernetes.io/identity label) created in user namespaces should not be GC'ed
 	expiredNonKubeSystemLease := newTestLease(time.Now().Add(-2*time.Hour), metav1.NamespaceDefault)
 	t.Run("expired non-system identity lease should not be garbage collected",
 		testLeaseNotGarbageCollected(t, kubeclient, expiredNonKubeSystemLease))

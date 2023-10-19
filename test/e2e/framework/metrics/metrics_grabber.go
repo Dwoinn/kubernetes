@@ -54,6 +54,7 @@ var MetricsGrabbingDisabledError = errors.New("metrics grabbing disabled")
 // Collection is metrics collection of components
 type Collection struct {
 	APIServerMetrics          APIServerMetrics
+	APIServerMetricsSLIs      APIServerMetrics
 	ControllerManagerMetrics  ControllerManagerMetrics
 	SnapshotControllerMetrics SnapshotControllerMetrics
 	KubeletMetrics            map[string]KubeletMetrics
@@ -180,18 +181,56 @@ func (g *Grabber) GrabFromKubelet(ctx context.Context, nodeName string) (Kubelet
 		return KubeletMetrics{}, fmt.Errorf("Error listing nodes with name %v, got %v", nodeName, nodes.Items)
 	}
 	kubeletPort := nodes.Items[0].Status.DaemonEndpoints.KubeletEndpoint.Port
-	return g.grabFromKubeletInternal(ctx, nodeName, int(kubeletPort))
+	return g.grabFromKubeletInternal(ctx, nodeName, int(kubeletPort), "metrics")
 }
 
-func (g *Grabber) grabFromKubeletInternal(ctx context.Context, nodeName string, kubeletPort int) (KubeletMetrics, error) {
+// GrabresourceMetricsFromKubelet returns resource metrics from kubelet
+func (g *Grabber) GrabResourceMetricsFromKubelet(ctx context.Context, nodeName string) (KubeletMetrics, error) {
+	nodes, err := g.client.CoreV1().Nodes().List(ctx, metav1.ListOptions{FieldSelector: fields.Set{"metadata.name": nodeName}.AsSelector().String()})
+	if err != nil {
+		return KubeletMetrics{}, err
+	}
+	if len(nodes.Items) != 1 {
+		return KubeletMetrics{}, fmt.Errorf("Error listing nodes with name %v, got %v", nodeName, nodes.Items)
+	}
+	kubeletPort := nodes.Items[0].Status.DaemonEndpoints.KubeletEndpoint.Port
+	return g.grabFromKubeletInternal(ctx, nodeName, int(kubeletPort), "metrics/resource")
+}
+
+func (g *Grabber) grabFromKubeletInternal(ctx context.Context, nodeName string, kubeletPort int, pathSuffix string) (KubeletMetrics, error) {
 	if kubeletPort <= 0 || kubeletPort > 65535 {
 		return KubeletMetrics{}, fmt.Errorf("Invalid Kubelet port %v. Skipping Kubelet's metrics gathering", kubeletPort)
 	}
-	output, err := g.getMetricsFromNode(ctx, nodeName, int(kubeletPort))
+	output, err := g.getMetricsFromNode(ctx, nodeName, int(kubeletPort), pathSuffix)
 	if err != nil {
 		return KubeletMetrics{}, err
 	}
 	return parseKubeletMetrics(output)
+}
+
+func (g *Grabber) getMetricsFromNode(ctx context.Context, nodeName string, kubeletPort int, pathSuffix string) (string, error) {
+	// There's a problem with timing out during proxy. Wrapping this in a goroutine to prevent deadlock.
+	finished := make(chan struct{}, 1)
+	var err error
+	var rawOutput []byte
+	go func() {
+		rawOutput, err = g.client.CoreV1().RESTClient().Get().
+			Resource("nodes").
+			SubResource("proxy").
+			Name(fmt.Sprintf("%v:%v", nodeName, kubeletPort)).
+			Suffix(pathSuffix).
+			Do(ctx).Raw()
+		finished <- struct{}{}
+	}()
+	select {
+	case <-time.After(proxyTimeout):
+		return "", fmt.Errorf("Timed out when waiting for proxy to gather metrics from %v", nodeName)
+	case <-finished:
+		if err != nil {
+			return "", err
+		}
+		return string(rawOutput), nil
+	}
 }
 
 // GrabFromScheduler returns metrics from scheduler
@@ -323,6 +362,31 @@ func (g *Grabber) GrabFromAPIServer(ctx context.Context) (APIServerMetrics, erro
 	return parseAPIServerMetrics(output)
 }
 
+// GrabMetricsSLIsFromAPIServer returns metrics from API server
+func (g *Grabber) GrabMetricsSLIsFromAPIServer(ctx context.Context) (APIServerMetrics, error) {
+	output, err := g.getMetricsSLIsFromAPIServer(ctx)
+	if err != nil {
+		return APIServerMetrics{}, err
+	}
+	return parseAPIServerMetrics(output)
+}
+
+func (g *Grabber) getMetricsFromAPIServer(ctx context.Context) (string, error) {
+	rawOutput, err := g.client.CoreV1().RESTClient().Get().RequestURI("/metrics").Do(ctx).Raw()
+	if err != nil {
+		return "", err
+	}
+	return string(rawOutput), nil
+}
+
+func (g *Grabber) getMetricsSLIsFromAPIServer(ctx context.Context) (string, error) {
+	rawOutput, err := g.client.CoreV1().RESTClient().Get().RequestURI("/metrics/slis").Do(ctx).Raw()
+	if err != nil {
+		return "", err
+	}
+	return string(rawOutput), nil
+}
+
 // Grab returns metrics from corresponding component
 func (g *Grabber) Grab(ctx context.Context) (Collection, error) {
 	result := Collection{}
@@ -333,6 +397,12 @@ func (g *Grabber) Grab(ctx context.Context) (Collection, error) {
 			errs = append(errs, err)
 		} else {
 			result.APIServerMetrics = metrics
+		}
+		metrics, err = g.GrabMetricsSLIsFromAPIServer(ctx)
+		if err != nil {
+			errs = append(errs, err)
+		} else {
+			result.APIServerMetricsSLIs = metrics
 		}
 	}
 	if g.grabFromScheduler {
@@ -375,7 +445,7 @@ func (g *Grabber) Grab(ctx context.Context) (Collection, error) {
 		} else {
 			for _, node := range nodes.Items {
 				kubeletPort := node.Status.DaemonEndpoints.KubeletEndpoint.Port
-				metrics, err := g.grabFromKubeletInternal(ctx, node.Name, int(kubeletPort))
+				metrics, err := g.grabFromKubeletInternal(ctx, node.Name, int(kubeletPort), "metrics")
 				if err != nil {
 					errs = append(errs, err)
 				}

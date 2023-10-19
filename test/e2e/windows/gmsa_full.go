@@ -90,9 +90,9 @@ const (
 	gmsaSharedFolder = "write_test"
 )
 
-var _ = SIGDescribe("[Feature:Windows] GMSA Full [Serial] [Slow]", func() {
+var _ = sigDescribe("[Feature:Windows] GMSA Full [Serial] [Slow]", skipUnlessWindows(func() {
 	f := framework.NewDefaultFramework("gmsa-full-test-windows")
-	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
 
 	ginkgo.Describe("GMSA support", func() {
 		ginkgo.It("works end to end", func(ctx context.Context) {
@@ -220,7 +220,7 @@ var _ = SIGDescribe("[Feature:Windows] GMSA Full [Serial] [Slow]", func() {
 
 		})
 	})
-})
+}))
 
 func isValidOutput(output string) bool {
 	return strings.Contains(output, expectedQueryOutput) &&
@@ -321,8 +321,8 @@ func deployGmsaWebhook(ctx context.Context, f *framework.Framework) error {
 	bindClusterRBACRoleToServiceAccount(ctx, f, s, "cluster-admin")
 
 	installSteps := []string{
-		"echo \"@testing http://dl-cdn.alpinelinux.org/alpine/edge/testing/\" >> /etc/apk/repositories",
-		"&& apk add kubectl@testing gettext openssl",
+		"echo \"@community http://dl-cdn.alpinelinux.org/alpine/edge/community/\" >> /etc/apk/repositories",
+		"&& apk add kubectl@community gettext openssl",
 		"&& apk add --update coreutils",
 		fmt.Sprintf("&& curl %s > gmsa.sh", gmsaWebhookDeployScriptURL),
 		"&& chmod +x gmsa.sh",

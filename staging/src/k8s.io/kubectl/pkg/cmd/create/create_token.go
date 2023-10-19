@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	authenticationv1 "k8s.io/api/authentication/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -30,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
+	"k8s.io/cli-runtime/pkg/genericiooptions"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	cmdutil "k8s.io/kubectl/pkg/cmd/util"
 	"k8s.io/kubectl/pkg/scheme"
@@ -44,6 +46,9 @@ type TokenOptions struct {
 	// PrintFlags holds options necessary for obtaining a printer
 	PrintFlags *genericclioptions.PrintFlags
 	PrintObj   func(obj runtime.Object) error
+
+	// Flags hold the parsed CLI flags.
+	Flags *pflag.FlagSet
 
 	// Name and namespace of service account to create a token for
 	Name      string
@@ -66,7 +71,7 @@ type TokenOptions struct {
 	CoreClient corev1client.CoreV1Interface
 
 	// IOStreams are the output streams for the operation. Required.
-	genericclioptions.IOStreams
+	genericiooptions.IOStreams
 }
 
 var (
@@ -88,7 +93,7 @@ var (
 		# Request a token bound to an instance of a Secret object
 		kubectl create token myapp --bound-object-kind Secret --bound-object-name mysecret
 
-		# Request a token bound to an instance of a Secret object with a specific uid
+		# Request a token bound to an instance of a Secret object with a specific UID
 		kubectl create token myapp --bound-object-kind Secret --bound-object-name mysecret --bound-object-uid 0d4691ed-659b-4935-a832-355f77ee47cc
 `)
 
@@ -98,7 +103,7 @@ var (
 	}
 )
 
-func NewTokenOpts(ioStreams genericclioptions.IOStreams) *TokenOptions {
+func NewTokenOpts(ioStreams genericiooptions.IOStreams) *TokenOptions {
 	return &TokenOptions{
 		PrintFlags: genericclioptions.NewPrintFlags("created").WithTypeSetter(scheme.Scheme),
 		IOStreams:  ioStreams,
@@ -106,7 +111,7 @@ func NewTokenOpts(ioStreams genericclioptions.IOStreams) *TokenOptions {
 }
 
 // NewCmdCreateToken returns an initialized Command for 'create token' sub command
-func NewCmdCreateToken(f cmdutil.Factory, ioStreams genericclioptions.IOStreams) *cobra.Command {
+func NewCmdCreateToken(f cmdutil.Factory, ioStreams genericiooptions.IOStreams) *cobra.Command {
 	o := NewTokenOpts(ioStreams)
 
 	cmd := &cobra.Command{
@@ -136,7 +141,7 @@ func NewCmdCreateToken(f cmdutil.Factory, ioStreams genericclioptions.IOStreams)
 
 	cmd.Flags().StringArrayVar(&o.Audiences, "audience", o.Audiences, "Audience of the requested token. If unset, defaults to requesting a token for use with the Kubernetes API server. May be repeated to request a token valid for multiple audiences.")
 
-	cmd.Flags().DurationVar(&o.Duration, "duration", o.Duration, "Requested lifetime of the issued token. The server may return a token with a longer or shorter lifetime.")
+	cmd.Flags().DurationVar(&o.Duration, "duration", o.Duration, "Requested lifetime of the issued token. If not set, the lifetime will be determined by the server automatically. The server may return a token with a longer or shorter lifetime.")
 
 	cmd.Flags().StringVar(&o.BoundObjectKind, "bound-object-kind", o.BoundObjectKind, "Kind of an object to bind the token to. "+
 		"Supported kinds are "+strings.Join(sets.StringKeySet(boundObjectKindToAPIVersion).List(), ", ")+". "+
@@ -147,6 +152,8 @@ func NewCmdCreateToken(f cmdutil.Factory, ioStreams genericclioptions.IOStreams)
 	cmd.Flags().StringVar(&o.BoundObjectUID, "bound-object-uid", o.BoundObjectUID, "UID of an object to bind the token to. "+
 		"Requires --bound-object-kind and --bound-object-name. "+
 		"If unset, the UID of the existing object is used.")
+
+	o.Flags = cmd.Flags()
 
 	return cmd
 }
@@ -194,7 +201,7 @@ func (o *TokenOptions) Validate() error {
 	if len(o.Namespace) == 0 {
 		return fmt.Errorf("--namespace is required")
 	}
-	if o.Duration < 0 {
+	if o.Duration < 0 || (o.Duration == 0 && o.Flags.Changed("duration")) {
 		return fmt.Errorf("--duration must be positive")
 	}
 	if o.Duration%time.Second != 0 {

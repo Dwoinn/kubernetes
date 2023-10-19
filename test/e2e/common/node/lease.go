@@ -34,27 +34,28 @@ import (
 	"k8s.io/utils/pointer"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/onsi/gomega"
 )
 
 func getPatchBytes(oldLease, newLease *coordinationv1.Lease) ([]byte, error) {
 	oldData, err := json.Marshal(oldLease)
 	if err != nil {
-		return nil, fmt.Errorf("failed to Marshal oldData: %v", err)
+		return nil, fmt.Errorf("failed to Marshal oldData: %w", err)
 	}
 	newData, err := json.Marshal(newLease)
 	if err != nil {
-		return nil, fmt.Errorf("failed to Marshal newData: %v", err)
+		return nil, fmt.Errorf("failed to Marshal newData: %w", err)
 	}
 	patchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldData, newData, coordinationv1.Lease{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to CreateTwoWayMergePatch: %v", err)
+		return nil, fmt.Errorf("failed to CreateTwoWayMergePatch: %w", err)
 	}
 	return patchBytes, nil
 }
 
 var _ = SIGDescribe("Lease", func() {
 	f := framework.NewDefaultFramework("lease-test")
-	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
 
 	/*
 		Release: v1.17
@@ -151,7 +152,7 @@ var _ = SIGDescribe("Lease", func() {
 
 		leases, err := leaseClient.List(ctx, metav1.ListOptions{})
 		framework.ExpectNoError(err, "couldn't list Leases")
-		framework.ExpectEqual(len(leases.Items), 2)
+		gomega.Expect(leases.Items).To(gomega.HaveLen(2))
 
 		selector := labels.Set(map[string]string{"deletecollection": "true"}).AsSelector()
 		err = leaseClient.DeleteCollection(ctx, metav1.DeleteOptions{}, metav1.ListOptions{LabelSelector: selector.String()})
@@ -159,7 +160,7 @@ var _ = SIGDescribe("Lease", func() {
 
 		leases, err = leaseClient.List(ctx, metav1.ListOptions{})
 		framework.ExpectNoError(err, "couldn't list Leases")
-		framework.ExpectEqual(len(leases.Items), 1)
+		gomega.Expect(leases.Items).To(gomega.HaveLen(1))
 
 		err = leaseClient.Delete(ctx, name, metav1.DeleteOptions{})
 		framework.ExpectNoError(err, "deleting Lease failed")

@@ -114,7 +114,7 @@ func (v *volumeExpandTestSuite) DefineTests(driver storageframework.TestDriver, 
 	// Beware that it also registers an AfterEach which renders f unusable. Any code using
 	// f must run inside an It or Context callback.
 	f := framework.NewFrameworkWithCustomTimeouts("volume-expand", storageframework.GetDriverTimeouts(driver))
-	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
 
 	init := func(ctx context.Context) {
 		l = local{}
@@ -236,7 +236,7 @@ func (v *volumeExpandTestSuite) DefineTests(driver storageframework.TestDriver, 
 			framework.ExpectNoError(err, "while waiting for fs resize to finish")
 
 			pvcConditions := l.resource.Pvc.Status.Conditions
-			framework.ExpectEqual(len(pvcConditions), 0, "pvc should not have conditions")
+			gomega.Expect(pvcConditions).To(gomega.BeEmpty(), "pvc should not have conditions")
 		})
 
 		ginkgo.It("should resize volume when PVC is edited while pod is using it", func(ctx context.Context) {
@@ -285,7 +285,7 @@ func (v *volumeExpandTestSuite) DefineTests(driver storageframework.TestDriver, 
 			framework.ExpectNoError(err, "while waiting for fs resize to finish")
 
 			pvcConditions := l.resource.Pvc.Status.Conditions
-			framework.ExpectEqual(len(pvcConditions), 0, "pvc should not have conditions")
+			gomega.Expect(pvcConditions).To(gomega.BeEmpty(), "pvc should not have conditions")
 		})
 
 	}
@@ -303,7 +303,7 @@ func ExpandPVCSize(ctx context.Context, origPVC *v1.PersistentVolumeClaim, size 
 		var err error
 		updatedPVC, err = c.CoreV1().PersistentVolumeClaims(origPVC.Namespace).Get(ctx, pvcName, metav1.GetOptions{})
 		if err != nil {
-			return false, fmt.Errorf("error fetching pvc %q for resizing: %v", pvcName, err)
+			return false, fmt.Errorf("error fetching pvc %q for resizing: %w", pvcName, err)
 		}
 
 		updatedPVC.Spec.Resources.Requests[v1.ResourceStorage] = size
@@ -315,7 +315,7 @@ func ExpandPVCSize(ctx context.Context, origPVC *v1.PersistentVolumeClaim, size 
 		}
 		return true, nil
 	})
-	if waitErr == wait.ErrWaitTimeout {
+	if wait.Interrupted(waitErr) {
 		return nil, fmt.Errorf("timed out attempting to update PVC size. last update error: %v", lastUpdateError)
 	}
 	if waitErr != nil {
@@ -331,7 +331,7 @@ func WaitForResizingCondition(ctx context.Context, pvc *v1.PersistentVolumeClaim
 		updatedPVC, err := c.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
 
 		if err != nil {
-			return false, fmt.Errorf("error fetching pvc %q for checking for resize status: %v", pvc.Name, err)
+			return false, fmt.Errorf("error fetching pvc %q for checking for resize status: %w", pvc.Name, err)
 		}
 
 		pvcConditions := updatedPVC.Status.Conditions
@@ -381,7 +381,7 @@ func WaitForPendingFSResizeCondition(ctx context.Context, pvc *v1.PersistentVolu
 		updatedPVC, err = c.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
 
 		if err != nil {
-			return false, fmt.Errorf("error fetching pvc %q for checking for resize status : %v", pvc.Name, err)
+			return false, fmt.Errorf("error fetching pvc %q for checking for resize status : %w", pvc.Name, err)
 		}
 
 		inProgressConditions := updatedPVC.Status.Conditions
@@ -409,7 +409,7 @@ func WaitForFSResize(ctx context.Context, pvc *v1.PersistentVolumeClaim, c clien
 		updatedPVC, err = c.CoreV1().PersistentVolumeClaims(pvc.Namespace).Get(ctx, pvc.Name, metav1.GetOptions{})
 
 		if err != nil {
-			return false, fmt.Errorf("error fetching pvc %q for checking for resize status : %v", pvc.Name, err)
+			return false, fmt.Errorf("error fetching pvc %q for checking for resize status : %w", pvc.Name, err)
 		}
 
 		pvcSize := updatedPVC.Spec.Resources.Requests[v1.ResourceStorage]

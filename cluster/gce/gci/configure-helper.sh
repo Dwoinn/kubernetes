@@ -1758,7 +1758,7 @@ function prepare-kube-proxy-manifest-variables {
       exit 1
     fi
   fi
-  params+=" --iptables-sync-period=1m --iptables-min-sync-period=1s --ipvs-sync-period=1m --ipvs-min-sync-period=1s"
+  params+=" --iptables-sync-period=1m --iptables-min-sync-period=10s --ipvs-sync-period=1m --ipvs-min-sync-period=10s"
   if [[ -n "${KUBEPROXY_TEST_ARGS:-}" ]]; then
     params+=" ${KUBEPROXY_TEST_ARGS}"
   fi
@@ -1783,6 +1783,7 @@ function prepare-kube-proxy-manifest-variables {
   sed -i -e "s@{{kube_cache_mutation_detector_env_name}}@${kube_cache_mutation_detector_env_name}@g" "${src_file}"
   sed -i -e "s@{{kube_cache_mutation_detector_env_value}}@${kube_cache_mutation_detector_env_value}@g" "${src_file}"
   sed -i -e "s@{{ cpurequest }}@${KUBE_PROXY_CPU_REQUEST:-100m}@g" "${src_file}"
+  sed -i -e "s@{{ memoryrequest }}@${KUBE_PROXY_MEMORY_REQUEST:-50Mi}@g" "${src_file}"
   sed -i -e "s@{{api_servers_with_port}}@${api_servers}@g" "${src_file}"
   sed -i -e "s@{{kubernetes_service_host_env_value}}@${KUBERNETES_MASTER_NAME}@g" "${src_file}"
   if [[ -n "${CLUSTER_IP_RANGE:-}" ]]; then
@@ -2153,10 +2154,10 @@ function start-kube-controller-manager {
   create-kubeconfig "kube-controller-manager" "${KUBE_CONTROLLER_MANAGER_TOKEN}"
   prepare-log-file /var/log/kube-controller-manager.log "${KUBE_CONTROLLER_MANAGER_RUNASUSER:-0}"
   # Calculate variables and assemble the command line.
-  local params=("${CONTROLLER_MANAGER_TEST_LOG_LEVEL:-"--v=2"}" "${CONTROLLER_MANAGER_TEST_ARGS:-}" "${CLOUD_CONFIG_OPT}")
+  local params=("${CONTROLLER_MANAGER_TEST_LOG_LEVEL:-"--v=2"}" "${KUBE_CONTROLLER_MANAGER_TEST_ARGS:-}" "${CONTROLLER_MANAGER_TEST_ARGS:-}" "${CLOUD_CONFIG_OPT}")
   local config_path='/etc/srv/kubernetes/kube-controller-manager/kubeconfig'
   params+=("--use-service-account-credentials")
-  params+=("--cloud-provider=${CLOUD_PROVIDER_FLAG:-gce}")
+  params+=("--cloud-provider=${CLOUD_PROVIDER_FLAG:-external}")
   params+=("--kubeconfig=${config_path}" "--authentication-kubeconfig=${config_path}" "--authorization-kubeconfig=${config_path}")
   params+=("--root-ca-file=${CA_CERT_BUNDLE_PATH}")
   params+=("--service-account-private-key-file=${SERVICEACCOUNT_KEY_PATH}")
@@ -2246,7 +2247,6 @@ function start-kube-controller-manager {
   cp "${src_file}" /etc/kubernetes/manifests
 }
 
-# (TODO/cloud-provider-gcp): Figure out how to inject
 # Starts cloud controller manager.
 # It prepares the log file, loads the docker image, calculates variables, sets them
 # in the manifest file, and then copies the manifest file to /etc/kubernetes/manifests.
@@ -2309,8 +2309,8 @@ function start-cloud-controller-manager {
       echo "None of the given feature gates (${FEATURE_GATES}) were found to be safe to pass to the CCM"
     fi
   fi
-  if [[ -n "${RUN_CONTROLLERS:-}" ]]; then
-    params+=("--controllers=${RUN_CONTROLLERS}")
+  if [[ -n "${RUN_CCM_CONTROLLERS:-}" ]]; then
+    params+=("--controllers=${RUN_CCM_CONTROLLERS}")
   fi
 
   echo "Converting manifest for cloud provider controller-manager"
@@ -3111,12 +3111,12 @@ spec:
   - name: vol
   containers:
   - name: pv-recycler
-    image: registry.k8s.io/debian-base:v2.0.0
+    image: registry.k8s.io/build-image/debian-base:bookworm-v1.0.0
     command:
     - /bin/sh
     args:
     - -c
-    - test -e /scrub && rm -rf /scrub/..?* /scrub/.[!.]* /scrub/* && test -z $(ls -A /scrub) || exit 1
+    - test -e /scrub && find /scrub -mindepth 1 -delete && test -z $(ls -A /scrub) || exit 1
     volumeMounts:
     - name: vol
       mountPath: /scrub
@@ -3572,8 +3572,7 @@ function main() {
       log-wrap 'StartKonnectivityServer' start-konnectivity-server
     fi
     log-wrap 'StartKubeControllerManager' start-kube-controller-manager
-    # (TODO/cloud-provider-gcp): Figure out how to inject
-    if [[ "${CLOUD_PROVIDER_FLAG:-gce}" == "external" ]]; then
+    if [[ "${CLOUD_PROVIDER_FLAG:-external}" == "external" ]]; then
       log-wrap 'StartCloudControllerManager' start-cloud-controller-manager
     fi
     log-wrap 'StartKubeScheduler' start-kube-scheduler

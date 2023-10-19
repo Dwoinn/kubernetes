@@ -24,6 +24,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"github.com/onsi/gomega/format"
 
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
@@ -53,7 +54,7 @@ const (
 
 var _ = SIGDescribe("CronJob", func() {
 	f := framework.NewDefaultFramework("cronjob")
-	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelBaseline
+	f.NamespacePodSecurityLevel = admissionapi.LevelBaseline
 
 	sleepCommand := []string{"sleep", "300"}
 
@@ -109,7 +110,7 @@ var _ = SIGDescribe("CronJob", func() {
 		ginkgo.By("Ensuring no job exists by listing jobs explicitly")
 		jobs, err := f.ClientSet.BatchV1().Jobs(f.Namespace.Name).List(ctx, metav1.ListOptions{})
 		framework.ExpectNoError(err, "Failed to list the CronJobs in namespace %s", f.Namespace.Name)
-		gomega.Expect(jobs.Items).To(gomega.HaveLen(0))
+		gomega.Expect(jobs.Items).To(gomega.BeEmpty())
 
 		ginkgo.By("Removing cronjob")
 		err = deleteCronJob(ctx, f.ClientSet, f.Namespace.Name, cronJob.Name)
@@ -207,7 +208,7 @@ var _ = SIGDescribe("CronJob", func() {
 		jobs, err := f.ClientSet.BatchV1().Jobs(f.Namespace.Name).List(ctx, metav1.ListOptions{})
 		framework.ExpectNoError(err, "Failed to list the CronJobs in namespace %s", f.Namespace.Name)
 		activeJobs, _ := filterActiveJobs(jobs)
-		gomega.Expect(len(activeJobs)).To(gomega.BeNumerically(">=", 1))
+		gomega.Expect(activeJobs).ToNot(gomega.BeEmpty())
 
 		ginkgo.By("Removing cronjob")
 		err = deleteCronJob(ctx, f.ClientSet, f.Namespace.Name, cronJob.Name)
@@ -308,7 +309,9 @@ var _ = SIGDescribe("CronJob", func() {
 		cronJob.Spec.TimeZone = &badTimeZone
 		_, err := createCronJob(ctx, f.ClientSet, f.Namespace.Name, cronJob)
 		framework.ExpectError(err, "CronJob creation should fail with invalid time zone error")
-		framework.ExpectEqual(apierrors.IsInvalid(err), true, "CronJob creation should fail with invalid time zone error")
+		if !apierrors.IsInvalid(err) {
+			framework.Failf("Failed to create CronJob, invalid time zone.")
+		}
 	})
 
 	/*
@@ -339,12 +342,12 @@ var _ = SIGDescribe("CronJob", func() {
 		ginkgo.By("getting")
 		gottenCronJob, err := cjClient.Get(ctx, createdCronJob.Name, metav1.GetOptions{})
 		framework.ExpectNoError(err)
-		framework.ExpectEqual(gottenCronJob.UID, createdCronJob.UID)
+		gomega.Expect(gottenCronJob.UID).To(gomega.Equal(createdCronJob.UID))
 
 		ginkgo.By("listing")
 		cjs, err := cjClient.List(ctx, metav1.ListOptions{LabelSelector: "special-label=" + f.UniqueName})
 		framework.ExpectNoError(err)
-		framework.ExpectEqual(len(cjs.Items), 1, "filtered list should have 1 item")
+		gomega.Expect(cjs.Items).To(gomega.HaveLen(1), "filtered list should have 1 item")
 
 		ginkgo.By("watching")
 		framework.Logf("starting watch")
@@ -356,7 +359,7 @@ var _ = SIGDescribe("CronJob", func() {
 		ginkgo.By("cluster-wide listing")
 		clusterCJs, err := clusterCJClient.List(ctx, metav1.ListOptions{LabelSelector: "special-label=" + f.UniqueName})
 		framework.ExpectNoError(err)
-		framework.ExpectEqual(len(clusterCJs.Items), 1, "filtered list should have 1 items")
+		gomega.Expect(clusterCJs.Items).To(gomega.HaveLen(1), "filtered list should have 1 item")
 
 		ginkgo.By("cluster-wide watching")
 		framework.Logf("starting watch")
@@ -367,7 +370,7 @@ var _ = SIGDescribe("CronJob", func() {
 		patchedCronJob, err := cjClient.Patch(ctx, createdCronJob.Name, types.MergePatchType,
 			[]byte(`{"metadata":{"annotations":{"patched":"true"}}}`), metav1.PatchOptions{})
 		framework.ExpectNoError(err)
-		framework.ExpectEqual(patchedCronJob.Annotations["patched"], "true", "patched object should have the applied annotation")
+		gomega.Expect(patchedCronJob.Annotations).To(gomega.HaveKeyWithValue("patched", "true"), "patched object should have the applied annotation")
 
 		ginkgo.By("updating")
 		var cjToUpdate, updatedCronJob *batchv1.CronJob
@@ -381,16 +384,17 @@ var _ = SIGDescribe("CronJob", func() {
 			return err
 		})
 		framework.ExpectNoError(err)
-		framework.ExpectEqual(updatedCronJob.Annotations["updated"], "true", "updated object should have the applied annotation")
+		gomega.Expect(updatedCronJob.Annotations).To(gomega.HaveKeyWithValue("updated", "true"), "updated object should have the applied annotation")
 
 		framework.Logf("waiting for watch events with expected annotations")
 		for sawAnnotations := false; !sawAnnotations; {
 			select {
 			case evt, ok := <-cjWatch.ResultChan():
+
 				if !ok {
-					framework.Fail("watch channel should not close")
+					framework.Fail("Watch channel is closed.")
 				}
-				framework.ExpectEqual(evt.Type, watch.Modified)
+				gomega.Expect(evt.Type).To(gomega.Equal(watch.Modified))
 				watchedCronJob, isCronJob := evt.Object.(*batchv1.CronJob)
 				if !isCronJob {
 					framework.Failf("expected CronJob, got %T", evt.Object)
@@ -423,7 +427,7 @@ var _ = SIGDescribe("CronJob", func() {
 		if !patchedStatus.Status.LastScheduleTime.Equal(&now1) {
 			framework.Failf("patched object should have the applied lastScheduleTime %#v, got %#v instead", cjStatus.LastScheduleTime, patchedStatus.Status.LastScheduleTime)
 		}
-		framework.ExpectEqual(patchedStatus.Annotations["patchedstatus"], "true", "patched object should have the applied annotation")
+		gomega.Expect(patchedStatus.Annotations).To(gomega.HaveKeyWithValue("patchedstatus", "true"), "patched object should have the applied annotation")
 
 		ginkgo.By("updating /status")
 		// we need to use RFC3339 version since conversion over the wire cuts nanoseconds
@@ -439,6 +443,7 @@ var _ = SIGDescribe("CronJob", func() {
 			return err
 		})
 		framework.ExpectNoError(err)
+
 		if !updatedStatus.Status.LastScheduleTime.Equal(&now2) {
 			framework.Failf("updated object status expected to have updated lastScheduleTime %#v, got %#v", statusToUpdate.Status.LastScheduleTime, updatedStatus.Status.LastScheduleTime)
 		}
@@ -449,14 +454,12 @@ var _ = SIGDescribe("CronJob", func() {
 		framework.ExpectNoError(err)
 		statusUID, _, err := unstructured.NestedFieldCopy(gottenStatus.Object, "metadata", "uid")
 		framework.ExpectNoError(err)
-		framework.ExpectEqual(string(createdCronJob.UID), statusUID, fmt.Sprintf("createdCronJob.UID: %v expected to match statusUID: %v ", createdCronJob.UID, statusUID))
+		gomega.Expect(string(createdCronJob.UID)).To(gomega.Equal(statusUID), "createdCronJob.UID: %v expected to match statusUID: %v ", createdCronJob.UID, statusUID)
 
 		// CronJob resource delete operations
 		expectFinalizer := func(cj *batchv1.CronJob, msg string) {
-			framework.ExpectNotEqual(cj.DeletionTimestamp, nil, fmt.Sprintf("expected deletionTimestamp, got nil on step: %q, cronjob: %+v", msg, cj))
-			if len(cj.Finalizers) == 0 {
-				framework.Failf("expected finalizers on cronjob, got none on step: %q, cronjob: %+v", msg, cj)
-			}
+			gomega.Expect(cj.DeletionTimestamp).NotTo(gomega.BeNil(), fmt.Sprintf("expected deletionTimestamp, got nil on step: %q, cronjob: %+v", msg, cj))
+			gomega.Expect(cj.Finalizers).ToNot(gomega.BeEmpty(), "expected finalizers on cronjob, got none on step: %q, cronjob: %+v", msg, cj)
 		}
 
 		ginkgo.By("deleting")
@@ -469,10 +472,8 @@ var _ = SIGDescribe("CronJob", func() {
 		// If controller does not support finalizers, we expect a 404.  Otherwise we validate finalizer behavior.
 		if err == nil {
 			expectFinalizer(cj, "deleting cronjob")
-		} else {
-			if !apierrors.IsNotFound(err) {
-				framework.Failf("expected 404, got %v", err)
-			}
+		} else if !apierrors.IsNotFound(err) {
+			framework.Failf("expected 404, got %v", err)
 		}
 
 		ginkgo.By("deleting a collection")
@@ -481,10 +482,7 @@ var _ = SIGDescribe("CronJob", func() {
 		cjs, err = cjClient.List(ctx, metav1.ListOptions{LabelSelector: "special-label=" + f.UniqueName})
 		framework.ExpectNoError(err)
 		// Should have <= 2 items since some cronjobs might not have been deleted yet due to finalizers
-		if len(cjs.Items) > 2 {
-			framework.Logf("got unexpected filtered list: %v", cjs.Items)
-			framework.Fail("filtered list should be <= 2")
-		}
+		gomega.Expect(len(cjs.Items)).To(gomega.BeNumerically("<=", 2), "filtered list length should be <= 2, got:\n%s", format.Object(cjs.Items, 1))
 		// Validate finalizers
 		for _, cj := range cjs.Items {
 			expectFinalizer(&cj, "deleting cronjob collection")
@@ -510,7 +508,7 @@ func ensureHistoryLimits(ctx context.Context, c clientset.Interface, ns string, 
 	activeJobs, finishedJobs := filterActiveJobs(jobs)
 	if len(finishedJobs) != 1 {
 		framework.Logf("Expected one finished job in namespace %s; activeJobs=%v; finishedJobs=%v", ns, activeJobs, finishedJobs)
-		framework.ExpectEqual(len(finishedJobs), 1)
+		gomega.Expect(finishedJobs).To(gomega.HaveLen(1))
 	}
 
 	// Job should get deleted when the next job finishes the next minute
@@ -526,7 +524,7 @@ func ensureHistoryLimits(ctx context.Context, c clientset.Interface, ns string, 
 	activeJobs, finishedJobs = filterActiveJobs(jobs)
 	if len(finishedJobs) != 1 {
 		framework.Logf("Expected one finished job in namespace %s; activeJobs=%v; finishedJobs=%v", ns, activeJobs, finishedJobs)
-		framework.ExpectEqual(len(finishedJobs), 1)
+		gomega.Expect(finishedJobs).To(gomega.HaveLen(1))
 	}
 
 	ginkgo.By("Removing cronjob")

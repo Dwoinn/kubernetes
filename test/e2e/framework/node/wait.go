@@ -96,7 +96,7 @@ func WaitForTotalHealthy(ctx context.Context, c clientset.Interface, timeout tim
 		return len(notReady) == 0 && len(missingPodsPerNode) == 0, nil
 	})
 
-	if err != nil && err != wait.ErrWaitTimeout {
+	if err != nil && !wait.Interrupted(err) {
 		return err
 	}
 
@@ -141,6 +141,23 @@ func WaitForNodeToBeNotReady(ctx context.Context, c clientset.Interface, name st
 // WaitForNodeToBeReady returns whether node name is ready within timeout.
 func WaitForNodeToBeReady(ctx context.Context, c clientset.Interface, name string, timeout time.Duration) bool {
 	return WaitConditionToBe(ctx, c, name, v1.NodeReady, true, timeout)
+}
+
+func WaitForNodeSchedulable(ctx context.Context, c clientset.Interface, name string, timeout time.Duration, wantSchedulable bool) bool {
+	framework.Logf("Waiting up to %v for node %s to be schedulable: %t", timeout, name, wantSchedulable)
+	for start := time.Now(); time.Since(start) < timeout; time.Sleep(poll) {
+		node, err := c.CoreV1().Nodes().Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			framework.Logf("Couldn't get node %s", name)
+			continue
+		}
+
+		if IsNodeSchedulable(node) == wantSchedulable {
+			return true
+		}
+	}
+	framework.Logf("Node %s didn't reach desired schedulable status (%t) within %v", name, wantSchedulable, timeout)
+	return false
 }
 
 // CheckReady waits up to timeout for cluster to has desired size and

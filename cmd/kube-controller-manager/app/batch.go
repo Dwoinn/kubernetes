@@ -29,22 +29,26 @@ import (
 )
 
 func startJobController(ctx context.Context, controllerContext ControllerContext) (controller.Interface, bool, error) {
-	go job.NewController(
+	jobController, err := job.NewController(
+		ctx,
 		controllerContext.InformerFactory.Core().V1().Pods(),
 		controllerContext.InformerFactory.Batch().V1().Jobs(),
 		controllerContext.ClientBuilder.ClientOrDie("job-controller"),
-	).Run(ctx, int(controllerContext.ComponentConfig.JobController.ConcurrentJobSyncs))
+	)
+	if err != nil {
+		return nil, true, fmt.Errorf("creating Job controller: %v", err)
+	}
+	go jobController.Run(ctx, int(controllerContext.ComponentConfig.JobController.ConcurrentJobSyncs))
 	return nil, true, nil
 }
 
 func startCronJobController(ctx context.Context, controllerContext ControllerContext) (controller.Interface, bool, error) {
-
-	cj2c, err := cronjob.NewControllerV2(controllerContext.InformerFactory.Batch().V1().Jobs(),
+	cj2c, err := cronjob.NewControllerV2(ctx, controllerContext.InformerFactory.Batch().V1().Jobs(),
 		controllerContext.InformerFactory.Batch().V1().CronJobs(),
 		controllerContext.ClientBuilder.ClientOrDie("cronjob-controller"),
 	)
 	if err != nil {
-		return nil, true, fmt.Errorf("error creating CronJob controller V2: %v", err)
+		return nil, true, fmt.Errorf("creating CronJob controller V2: %v", err)
 	}
 
 	go cj2c.Run(ctx, int(controllerContext.ComponentConfig.CronJobController.ConcurrentCronJobSyncs))

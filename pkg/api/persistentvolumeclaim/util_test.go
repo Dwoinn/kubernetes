@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	featuregatetesting "k8s.io/component-base/featuregate/testing"
 	"k8s.io/kubernetes/pkg/apis/core"
@@ -261,7 +262,7 @@ func TestDataSourceFilter(t *testing.T) {
 			spec:       core.PersistentVolumeClaimSpec{DataSourceRef: xnsVolumeDataSourceRef},
 			oldSpec:    core.PersistentVolumeClaimSpec{DataSourceRef: volumeDataSourceRef},
 			anyEnabled: true,
-			wantRef:    xnsVolumeDataSourceRef, // existing field isn't dropped.
+			wantRef:    xnsVolumeDataSourceRef, // existing field isn't dropped.8
 		},
 	}
 
@@ -429,30 +430,30 @@ func TestDropDisabledFieldsFromStatus(t *testing.T) {
 		{
 			name:     "for:newPVC=hasResizeStatus,oldPVC=nil, featuregate=false should drop field",
 			feature:  false,
-			pvc:      withResizeStatus(core.PersistentVolumeClaimNodeExpansionFailed),
+			pvc:      withResizeStatus(core.PersistentVolumeClaimNodeResizeFailed),
 			oldPVC:   nil,
 			expected: getPVC(),
 		},
 		{
 			name:     "for:newPVC=hasResizeStatus,oldPVC=doesnot,featuregate=true; should keep field",
 			feature:  true,
-			pvc:      withResizeStatus(core.PersistentVolumeClaimNodeExpansionFailed),
+			pvc:      withResizeStatus(core.PersistentVolumeClaimNodeResizeFailed),
 			oldPVC:   getPVC(),
-			expected: withResizeStatus(core.PersistentVolumeClaimNodeExpansionFailed),
+			expected: withResizeStatus(core.PersistentVolumeClaimNodeResizeFailed),
 		},
 		{
 			name:     "for:newPVC=hasResizeStatus,oldPVC=hasResizeStatus,featuregate=true; should keep field",
 			feature:  true,
-			pvc:      withResizeStatus(core.PersistentVolumeClaimNodeExpansionFailed),
-			oldPVC:   withResizeStatus(core.PersistentVolumeClaimNodeExpansionFailed),
-			expected: withResizeStatus(core.PersistentVolumeClaimNodeExpansionFailed),
+			pvc:      withResizeStatus(core.PersistentVolumeClaimNodeResizeFailed),
+			oldPVC:   withResizeStatus(core.PersistentVolumeClaimNodeResizeFailed),
+			expected: withResizeStatus(core.PersistentVolumeClaimNodeResizeFailed),
 		},
 		{
 			name:     "for:newPVC=hasResizeStatus,oldPVC=hasResizeStatus,featuregate=false; should keep field",
 			feature:  false,
-			pvc:      withResizeStatus(core.PersistentVolumeClaimNodeExpansionFailed),
-			oldPVC:   withResizeStatus(core.PersistentVolumeClaimNodeExpansionFailed),
-			expected: withResizeStatus(core.PersistentVolumeClaimNodeExpansionFailed),
+			pvc:      withResizeStatus(core.PersistentVolumeClaimNodeResizeFailed),
+			oldPVC:   withResizeStatus(core.PersistentVolumeClaimNodeResizeFailed),
+			expected: withResizeStatus(core.PersistentVolumeClaimNodeResizeFailed),
 		},
 	}
 
@@ -483,10 +484,12 @@ func withAllocatedResource(q string) *core.PersistentVolumeClaim {
 	}
 }
 
-func withResizeStatus(status core.PersistentVolumeClaimResizeStatus) *core.PersistentVolumeClaim {
+func withResizeStatus(status core.ClaimResourceStatus) *core.PersistentVolumeClaim {
 	return &core.PersistentVolumeClaim{
 		Status: core.PersistentVolumeClaimStatus{
-			ResizeStatus: &status,
+			AllocatedResourceStatuses: map[core.ResourceName]core.ClaimResourceStatus{
+				core.ResourceStorage: status,
+			},
 		},
 	}
 }
@@ -506,7 +509,7 @@ func TestWarnings(t *testing.T) {
 			name: "200Mi requests no warning",
 			template: &core.PersistentVolumeClaim{
 				Spec: core.PersistentVolumeClaimSpec{
-					Resources: core.ResourceRequirements{
+					Resources: core.VolumeResourceRequirements{
 						Requests: core.ResourceList{
 							core.ResourceStorage: resource.MustParse("200Mi"),
 						},
@@ -522,7 +525,7 @@ func TestWarnings(t *testing.T) {
 			name: "200m warning",
 			template: &core.PersistentVolumeClaim{
 				Spec: core.PersistentVolumeClaimSpec{
-					Resources: core.ResourceRequirements{
+					Resources: core.VolumeResourceRequirements{
 						Requests: core.ResourceList{
 							core.ResourceStorage: resource.MustParse("200m"),
 						},
@@ -541,7 +544,7 @@ func TestWarnings(t *testing.T) {
 			name: "integer no warning",
 			template: &core.PersistentVolumeClaim{
 				Spec: core.PersistentVolumeClaimSpec{
-					Resources: core.ResourceRequirements{
+					Resources: core.VolumeResourceRequirements{
 						Requests: core.ResourceList{
 							core.ResourceStorage: resource.MustParse("200"),
 						},
@@ -549,6 +552,20 @@ func TestWarnings(t *testing.T) {
 				},
 			},
 			expected: nil,
+		},
+		{
+			name: "storageclass annotations warning",
+			template: &core.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "foo",
+					Annotations: map[string]string{
+						core.BetaStorageClassAnnotation: "",
+					},
+				},
+			},
+			expected: []string{
+				`metadata.annotations[volume.beta.kubernetes.io/storage-class]: deprecated since v1.8; use "storageClassName" attribute instead`,
+			},
 		},
 	}
 

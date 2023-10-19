@@ -37,7 +37,7 @@ import (
 
 var _ = SIGDescribe("[Disruptive]NodeLease", func() {
 	f := framework.NewDefaultFramework("node-lease-test")
-	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
 	var systemPodsNo int32
 	var c clientset.Interface
 	var ns string
@@ -97,7 +97,7 @@ var _ = SIGDescribe("[Disruptive]NodeLease", func() {
 			// Many e2e tests assume that the cluster is fully healthy before they start.  Wait until
 			// the cluster is restored to health.
 			ginkgo.By("waiting for system pods to successfully restart")
-			err := e2epod.WaitForPodsRunningReady(ctx, c, metav1.NamespaceSystem, systemPodsNo, 0, framework.PodReadyBeforeTimeout, map[string]string{})
+			err := e2epod.WaitForPodsRunningReady(ctx, c, metav1.NamespaceSystem, systemPodsNo, 0, framework.PodReadyBeforeTimeout)
 			framework.ExpectNoError(err)
 		})
 
@@ -109,7 +109,7 @@ var _ = SIGDescribe("[Disruptive]NodeLease", func() {
 			ginkgo.By("verify node lease exists for every nodes")
 			originalNodes, err := e2enode.GetReadySchedulableNodes(ctx, c)
 			framework.ExpectNoError(err)
-			framework.ExpectEqual(len(originalNodes.Items), framework.TestContext.CloudConfig.NumNodes)
+			gomega.Expect(originalNodes.Items).To(gomega.HaveLen(framework.TestContext.CloudConfig.NumNodes))
 
 			gomega.Eventually(ctx, func() error {
 				pass := true
@@ -135,7 +135,7 @@ var _ = SIGDescribe("[Disruptive]NodeLease", func() {
 			framework.ExpectNoError(err)
 			targetNodes, err := e2enode.GetReadySchedulableNodes(ctx, c)
 			framework.ExpectNoError(err)
-			framework.ExpectEqual(len(targetNodes.Items), int(targetNumNodes))
+			gomega.Expect(targetNodes.Items).To(gomega.HaveLen(int(targetNumNodes)))
 
 			ginkgo.By("verify node lease is deleted for the deleted node")
 			var deletedNodeName string

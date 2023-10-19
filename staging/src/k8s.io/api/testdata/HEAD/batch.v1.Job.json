@@ -68,6 +68,8 @@
       ]
     },
     "backoffLimit": 7,
+    "backoffLimitPerIndex": 12,
+    "maxFailedIndexes": 13,
     "selector": {
       "matchLabels": {
         "matchLabelsKey": "matchLabelsValue"
@@ -477,12 +479,7 @@
                     },
                     "requests": {
                       "requestsKey": "0"
-                    },
-                    "claims": [
-                      {
-                        "name": "nameValue"
-                      }
-                    ]
+                    }
                   },
                   "volumeName": "volumeNameValue",
                   "storageClassName": "storageClassNameValue",
@@ -576,6 +573,13 @@
                 }
               ]
             },
+            "resizePolicy": [
+              {
+                "resourceName": "resourceNameValue",
+                "restartPolicy": "restartPolicyValue"
+              }
+            ],
+            "restartPolicy": "restartPolicyValue",
             "volumeMounts": [
               {
                 "name": "nameValue",
@@ -713,6 +717,9 @@
                 "tcpSocket": {
                   "port": "portValue",
                   "host": "hostValue"
+                },
+                "sleep": {
+                  "seconds": 1
                 }
               },
               "preStop": {
@@ -736,6 +743,9 @@
                 "tcpSocket": {
                   "port": "portValue",
                   "host": "hostValue"
+                },
+                "sleep": {
+                  "seconds": 1
                 }
               }
             },
@@ -853,6 +863,13 @@
                 }
               ]
             },
+            "resizePolicy": [
+              {
+                "resourceName": "resourceNameValue",
+                "restartPolicy": "restartPolicyValue"
+              }
+            ],
+            "restartPolicy": "restartPolicyValue",
             "volumeMounts": [
               {
                 "name": "nameValue",
@@ -990,6 +1007,9 @@
                 "tcpSocket": {
                   "port": "portValue",
                   "host": "hostValue"
+                },
+                "sleep": {
+                  "seconds": 1
                 }
               },
               "preStop": {
@@ -1013,6 +1033,9 @@
                 "tcpSocket": {
                   "port": "portValue",
                   "host": "hostValue"
+                },
+                "sleep": {
+                  "seconds": 1
                 }
               }
             },
@@ -1130,6 +1153,13 @@
                 }
               ]
             },
+            "resizePolicy": [
+              {
+                "resourceName": "resourceNameValue",
+                "restartPolicy": "restartPolicyValue"
+              }
+            ],
+            "restartPolicy": "restartPolicyValue",
             "volumeMounts": [
               {
                 "name": "nameValue",
@@ -1267,6 +1297,9 @@
                 "tcpSocket": {
                   "port": "portValue",
                   "host": "hostValue"
+                },
+                "sleep": {
+                  "seconds": 1
                 }
               },
               "preStop": {
@@ -1290,6 +1323,9 @@
                 "tcpSocket": {
                   "port": "portValue",
                   "host": "hostValue"
+                },
+                "sleep": {
+                  "seconds": 1
                 }
               }
             },
@@ -1691,7 +1727,8 @@
     },
     "ttlSecondsAfterFinished": 8,
     "completionMode": "completionModeValue",
-    "suspend": true
+    "suspend": true,
+    "podReplacementPolicy": "podReplacementPolicyValue"
   },
   "status": {
     "conditions": [
@@ -1709,7 +1746,9 @@
     "active": 4,
     "succeeded": 5,
     "failed": 6,
+    "terminating": 11,
     "completedIndexes": "completedIndexesValue",
+    "failedIndexes": "failedIndexesValue",
     "uncountedTerminatedPods": {
       "succeeded": [
         "succeededValue"

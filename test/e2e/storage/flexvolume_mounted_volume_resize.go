@@ -43,7 +43,7 @@ import (
 
 const (
 	// total time to wait for cloudprovider or file system resize to finish
-	totalResizeWaitPeriod = 5 * time.Minute
+	totalResizeWaitPeriod = 10 * time.Minute
 )
 
 var _ = utils.SIGDescribe("[Feature:Flexvolumes] Mounted flexvolume expand[Slow]", func() {
@@ -61,7 +61,7 @@ var _ = utils.SIGDescribe("[Feature:Flexvolumes] Mounted flexvolume expand[Slow]
 	)
 
 	f := framework.NewDefaultFramework("mounted-flexvolume-expand")
-	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
 	ginkgo.BeforeEach(func(ctx context.Context) {
 		e2eskipper.SkipUnlessProviderIs("aws", "gce", "local")
 		e2eskipper.SkipUnlessMasterOSDistroIs("debian", "ubuntu", "gci", "custom")
@@ -69,7 +69,7 @@ var _ = utils.SIGDescribe("[Feature:Flexvolumes] Mounted flexvolume expand[Slow]
 		e2eskipper.SkipUnlessSSHKeyPresent()
 		c = f.ClientSet
 		ns = f.Namespace.Name
-		framework.ExpectNoError(e2enode.WaitForAllNodesSchedulable(ctx, c, framework.TestContext.NodeSchedulableTimeout))
+		framework.ExpectNoError(e2enode.WaitForAllNodesSchedulable(ctx, c, f.Timeouts.NodeSchedulable))
 
 		node, err = e2enode.GetRandomReadySchedulableNode(ctx, f.ClientSet)
 		framework.ExpectNoError(err)
@@ -138,10 +138,10 @@ var _ = utils.SIGDescribe("[Feature:Flexvolumes] Mounted flexvolume expand[Slow]
 
 		pvs, err = e2epv.WaitForPVClaimBoundPhase(ctx, c, pvcClaims, framework.ClaimProvisionTimeout)
 		framework.ExpectNoError(err, "Failed waiting for PVC to be bound %v", err)
-		framework.ExpectEqual(len(pvs), 1)
+		gomega.Expect(pvs).To(gomega.HaveLen(1))
 
 		ginkgo.By("Creating a deployment with the provisioned volume")
-		deployment, err := e2edeployment.CreateDeployment(ctx, c, int32(1), map[string]string{"test": "app"}, nodeKeyValueLabel, ns, pvcClaims, "")
+		deployment, err := e2edeployment.CreateDeployment(ctx, c, int32(1), map[string]string{"test": "app"}, nodeKeyValueLabel, ns, pvcClaims, admissionapi.LevelRestricted, "")
 		framework.ExpectNoError(err, "Failed creating deployment %v", err)
 		ginkgo.DeferCleanup(c.AppsV1().Deployments(ns).Delete, deployment.Name, metav1.DeleteOptions{})
 
@@ -180,6 +180,6 @@ var _ = utils.SIGDescribe("[Feature:Flexvolumes] Mounted flexvolume expand[Slow]
 		framework.ExpectNoError(err, "while waiting for fs resize to finish")
 
 		pvcConditions := pvc.Status.Conditions
-		framework.ExpectEqual(len(pvcConditions), 0, "pvc should not have conditions")
+		gomega.Expect(pvcConditions).To(gomega.BeEmpty(), "pvc should not have conditions")
 	})
 })

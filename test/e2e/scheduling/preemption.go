@@ -69,7 +69,7 @@ var _ = SIGDescribe("SchedulerPreemption [Serial]", func() {
 	var nodeList *v1.NodeList
 	var ns string
 	f := framework.NewDefaultFramework("sched-preemption")
-	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelBaseline
+	f.NamespacePodSecurityLevel = admissionapi.LevelBaseline
 
 	lowPriority, mediumPriority, highPriority := int32(1), int32(100), int32(1000)
 	lowPriorityClassName := f.BaseName + "-low-priority"
@@ -192,14 +192,14 @@ var _ = SIGDescribe("SchedulerPreemption [Serial]", func() {
 
 		ginkgo.By("Run a high priority pod that has same requirements as that of lower priority pod")
 		// Create a high priority pod and make sure it is scheduled on the same node as the low priority pod.
-		runPausePodWithTimeout(ctx, f, pausePodConfig{
+		runPausePod(ctx, f, pausePodConfig{
 			Name:              "preemptor-pod",
 			PriorityClassName: highPriorityClassName,
 			Resources: &v1.ResourceRequirements{
 				Requests: podRes,
 				Limits:   podRes,
 			},
-		}, framework.PodStartShortTimeout)
+		})
 
 		preemptedPod, err := cs.CoreV1().Pods(pods[0].Namespace).Get(ctx, pods[0].Name, metav1.GetOptions{})
 		podPreempted := (err != nil && apierrors.IsNotFound(err)) ||
@@ -290,7 +290,7 @@ var _ = SIGDescribe("SchedulerPreemption [Serial]", func() {
 				framework.Failf("Error cleanup pod `%s/%s`: %v", metav1.NamespaceSystem, "critical-pod", err)
 			}
 		}()
-		runPausePodWithTimeout(ctx, f, pausePodConfig{
+		runPausePod(ctx, f, pausePodConfig{
 			Name:              "critical-pod",
 			Namespace:         metav1.NamespaceSystem,
 			PriorityClassName: scheduling.SystemClusterCritical,
@@ -298,7 +298,7 @@ var _ = SIGDescribe("SchedulerPreemption [Serial]", func() {
 				Requests: podRes,
 				Limits:   podRes,
 			},
-		}, framework.PodStartShortTimeout)
+		})
 
 		defer func() {
 			// Clean-up the critical pod
@@ -514,7 +514,7 @@ var _ = SIGDescribe("SchedulerPreemption [Serial]", func() {
 			runPausePod(ctx, f, mediumPodCfg)
 
 			ginkgo.By("Verify there are 3 Pods left in this namespace")
-			wantPods := sets.NewString("high", "medium", "low")
+			wantPods := sets.New("high", "medium", "low")
 
 			// Wait until the number of pods stabilizes. Note that `medium` pod can get scheduled once the
 			// second low priority pod is marked as terminating.
@@ -542,7 +542,7 @@ var _ = SIGDescribe("SchedulerPreemption [Serial]", func() {
 		var node *v1.Node
 		var ns, nodeHostNameLabel string
 		f := framework.NewDefaultFramework("sched-preemption-path")
-		f.NamespacePodSecurityEnforceLevel = admissionapi.LevelBaseline
+		f.NamespacePodSecurityLevel = admissionapi.LevelBaseline
 
 		priorityPairs := make([]priorityPair, 0)
 
@@ -728,7 +728,7 @@ var _ = SIGDescribe("SchedulerPreemption [Serial]", func() {
 			// - if it's less than expected replicas, it denotes its pods are under-preempted
 			// "*2" means pods of ReplicaSet{1,2} are expected to be only preempted once.
 			expectedRSPods := []int32{1 * 2, 1 * 2, 1}
-			err := wait.Poll(framework.Poll, framework.PollShortTimeout, func() (bool, error) {
+			err := wait.PollUntilContextTimeout(ctx, framework.Poll, framework.PollShortTimeout, false, func(ctx context.Context) (bool, error) {
 				for i := 0; i < len(podNamesSeen); i++ {
 					got := atomic.LoadInt32(&podNamesSeen[i])
 					if got < expectedRSPods[i] {
@@ -762,7 +762,7 @@ var _ = SIGDescribe("SchedulerPreemption [Serial]", func() {
 	ginkgo.Context("PriorityClass endpoints", func() {
 		var cs clientset.Interface
 		f := framework.NewDefaultFramework("sched-preemption-path")
-		f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
+		f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
 		testUUID := uuid.New().String()
 		var pcs []*schedulingv1.PriorityClass
 
@@ -814,13 +814,13 @@ var _ = SIGDescribe("SchedulerPreemption [Serial]", func() {
 			pcCopy := pcs[0].DeepCopy()
 			pcCopy.Value = pcCopy.Value * 10
 			err := patchPriorityClass(ctx, cs, pcs[0], pcCopy)
-			framework.ExpectError(err, "expect a patch error on an immutable field")
+			gomega.Expect(err).To(gomega.HaveOccurred(), "expect a patch error on an immutable field")
 			framework.Logf("%v", err)
 
 			pcCopy = pcs[1].DeepCopy()
 			pcCopy.Value = pcCopy.Value * 10
 			_, err = cs.SchedulingV1().PriorityClasses().Update(ctx, pcCopy, metav1.UpdateOptions{})
-			framework.ExpectError(err, "expect an update error on an immutable field")
+			gomega.Expect(err).To(gomega.HaveOccurred(), "expect an update error on an immutable field")
 			framework.Logf("%v", err)
 
 			// 2. Patch/Update on mutable fields will succeed.
@@ -843,8 +843,8 @@ var _ = SIGDescribe("SchedulerPreemption [Serial]", func() {
 			for _, pc := range pcs {
 				livePC, err := cs.SchedulingV1().PriorityClasses().Get(ctx, pc.Name, metav1.GetOptions{})
 				framework.ExpectNoError(err)
-				framework.ExpectEqual(livePC.Value, pc.Value)
-				framework.ExpectEqual(livePC.Description, newDesc)
+				gomega.Expect(livePC.Value).To(gomega.Equal(pc.Value))
+				gomega.Expect(livePC.Description).To(gomega.Equal(newDesc))
 			}
 		})
 	})
@@ -905,7 +905,7 @@ func createPod(ctx context.Context, f *framework.Framework, conf pausePodConfig)
 // waitForPreemptingWithTimeout verifies if 'pod' is preempting within 'timeout', specifically it checks
 // if the 'spec.NodeName' field of preemptor 'pod' has been set.
 func waitForPreemptingWithTimeout(ctx context.Context, f *framework.Framework, pod *v1.Pod, timeout time.Duration) {
-	err := wait.Poll(2*time.Second, timeout, func() (bool, error) {
+	err := wait.PollUntilContextTimeout(ctx, 2*time.Second, timeout, false, func(ctx context.Context) (bool, error) {
 		pod, err := f.ClientSet.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
 		if err != nil {
 			return false, err
@@ -930,7 +930,7 @@ func patchNode(ctx context.Context, client clientset.Interface, old *v1.Node, ne
 	}
 	patchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldData, newData, &v1.Node{})
 	if err != nil {
-		return fmt.Errorf("failed to create merge patch for node %q: %v", old.Name, err)
+		return fmt.Errorf("failed to create merge patch for node %q: %w", old.Name, err)
 	}
 	_, err = client.CoreV1().Nodes().Patch(ctx, old.Name, types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{}, "status")
 	return err
@@ -948,7 +948,7 @@ func patchPriorityClass(ctx context.Context, cs clientset.Interface, old, new *s
 	}
 	patchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldData, newData, &schedulingv1.PriorityClass{})
 	if err != nil {
-		return fmt.Errorf("failed to create merge patch for PriorityClass %q: %v", old.Name, err)
+		return fmt.Errorf("failed to create merge patch for PriorityClass %q: %w", old.Name, err)
 	}
 	_, err = cs.SchedulingV1().PriorityClasses().Patch(ctx, old.Name, types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{})
 	return err

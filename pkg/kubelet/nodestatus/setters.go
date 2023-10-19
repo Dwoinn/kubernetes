@@ -109,7 +109,11 @@ func NodeAddress(nodeIPs []net.IP, // typically Kubelet.nodeIPs
 			if node.ObjectMeta.Annotations == nil {
 				node.ObjectMeta.Annotations = make(map[string]string)
 			}
-			node.ObjectMeta.Annotations[cloudproviderapi.AnnotationAlphaProvidedIPAddr] = nodeIP.String()
+			annotation := nodeIP.String()
+			if secondaryNodeIPSpecified {
+				annotation += "," + secondaryNodeIP.String()
+			}
+			node.ObjectMeta.Annotations[cloudproviderapi.AnnotationAlphaProvidedIPAddr] = annotation
 		} else if node.ObjectMeta.Annotations != nil {
 			// Clean up stale annotations if no longer using a cloud provider or
 			// no longer overriding node IP.
@@ -119,9 +123,17 @@ func NodeAddress(nodeIPs []net.IP, // typically Kubelet.nodeIPs
 		if externalCloudProvider {
 			// If --cloud-provider=external and node address is already set,
 			// then we return early because provider set addresses should take precedence.
-			// Otherwise, we try to look up the node IP and let the cloud provider override it later
+			// Otherwise, we try to use the node IP defined via flags and let the cloud provider override it later
 			// This should alleviate a lot of the bootstrapping issues with out-of-tree providers
 			if len(node.Status.Addresses) > 0 {
+				return nil
+			}
+			// If nodeIPs are not specified wait for the external cloud-provider to set the node addresses.
+			// Otherwise uses them on the assumption that the installer/administrator has the previous knowledge
+			// required to ensure the external cloud provider will use the same addresses to avoid the issues explained
+			// in https://github.com/kubernetes/kubernetes/issues/120720.
+			// We are already hinting the external cloud provider via the annotation AnnotationAlphaProvidedIPAddr.
+			if !nodeIPSpecified {
 				return nil
 			}
 		}
@@ -131,7 +143,7 @@ func NodeAddress(nodeIPs []net.IP, // typically Kubelet.nodeIPs
 				return err
 			}
 
-			nodeAddresses, err := cloudprovidernodeutil.PreferNodeIP(nodeIP, cloudNodeAddresses)
+			nodeAddresses, err := cloudprovidernodeutil.GetNodeAddressesFromNodeIPLegacy(nodeIP, cloudNodeAddresses)
 			if err != nil {
 				return err
 			}

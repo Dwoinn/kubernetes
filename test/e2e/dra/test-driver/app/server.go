@@ -70,8 +70,8 @@ func NewCommand() *cobra.Command {
 
 	fs = sharedFlagSets.FlagSet("Kubernetes client")
 	kubeconfig := fs.String("kubeconfig", "", "Absolute path to the kube.config file. Either this or KUBECONFIG need to be set if the driver is being run out of cluster.")
-	kubeAPIQPS := fs.Float32("kube-api-qps", 5, "QPS to use while communicating with the kubernetes apiserver.")
-	kubeAPIBurst := fs.Int("kube-api-burst", 10, "Burst to use while communicating with the kubernetes apiserver.")
+	kubeAPIQPS := fs.Float32("kube-api-qps", 50, "QPS to use while communicating with the kubernetes apiserver.")
+	kubeAPIBurst := fs.Int("kube-api-burst", 100, "Burst to use while communicating with the kubernetes apiserver.")
 	workers := fs.Int("workers", 10, "Concurrency to process multiple claims")
 
 	fs = sharedFlagSets.FlagSet("http server")
@@ -81,7 +81,9 @@ func NewCommand() *cobra.Command {
 	profilePath := fs.String("pprof-path", "", "The HTTP path where pprof profiling will be available, disabled if empty.")
 
 	fs = sharedFlagSets.FlagSet("CDI")
-	driverName := fs.String("drivername", "test-driver.cdi.k8s.io", "Resource driver name.")
+	driverNameFlagName := "drivername"
+	driverName := fs.String(driverNameFlagName, "test-driver.cdi.k8s.io", "Resource driver name.")
+	driverNameFlag := fs.Lookup(driverNameFlagName)
 
 	fs = sharedFlagSets.FlagSet("other")
 	featureGate := featuregate.NewFeatureGate()
@@ -115,12 +117,12 @@ func NewCommand() *cobra.Command {
 		if *kubeconfig == "" {
 			config, err = rest.InClusterConfig()
 			if err != nil {
-				return fmt.Errorf("create in-cluster client configuration: %v", err)
+				return fmt.Errorf("create in-cluster client configuration: %w", err)
 			}
 		} else {
 			config, err = clientcmd.BuildConfigFromFlags("", *kubeconfig)
 			if err != nil {
-				return fmt.Errorf("create out-of-cluster client configuration: %v", err)
+				return fmt.Errorf("create out-of-cluster client configuration: %w", err)
 			}
 		}
 		config.QPS = *kubeAPIQPS
@@ -128,7 +130,7 @@ func NewCommand() *cobra.Command {
 
 		clientset, err = kubernetes.NewForConfig(config)
 		if err != nil {
-			return fmt.Errorf("create client: %v", err)
+			return fmt.Errorf("create client: %w", err)
 		}
 
 		if *httpEndpoint != "" {
@@ -158,7 +160,7 @@ func NewCommand() *cobra.Command {
 
 			listener, err := net.Listen("tcp", *httpEndpoint)
 			if err != nil {
-				return fmt.Errorf("listen on HTTP endpoint: %v", err)
+				return fmt.Errorf("listen on HTTP endpoint: %w", err)
 			}
 
 			go func() {
@@ -192,6 +194,7 @@ func NewCommand() *cobra.Command {
 		"Duration, in seconds, that the acting leader will retry refreshing leadership before giving up.")
 	leaderElectionRetryPeriod := fs.Duration("leader-election-retry-period", 5*time.Second,
 		"Duration, in seconds, the LeaderElector clients should wait between tries of actions.")
+	fs = controllerFlagSets.FlagSet("controller")
 	resourceConfig := fs.String("resource-config", "", "A JSON file containing a Resources struct. Defaults are unshared, network-attached resources.")
 	fs = controller.Flags()
 	for _, f := range controllerFlagSets.FlagSets {
@@ -203,17 +206,20 @@ func NewCommand() *cobra.Command {
 		if *resourceConfig != "" {
 			file, err := os.Open(*resourceConfig)
 			if err != nil {
-				return fmt.Errorf("open resource config: %v", err)
+				return fmt.Errorf("open resource config: %w", err)
 			}
 			decoder := json.NewDecoder(file)
 			decoder.DisallowUnknownFields()
 			if err := decoder.Decode(&resources); err != nil {
-				return fmt.Errorf("parse resource config %q: %v", *resourceConfig, err)
+				return fmt.Errorf("parse resource config %q: %w", *resourceConfig, err)
 			}
+		}
+		if resources.DriverName == "" || driverNameFlag.Changed {
+			resources.DriverName = *driverName
 		}
 
 		run := func() {
-			controller := NewController(clientset, *driverName, resources)
+			controller := NewController(clientset, resources)
 			controller.Run(ctx, *workers)
 		}
 
@@ -230,7 +236,7 @@ func NewCommand() *cobra.Command {
 		// exceeds the QPS+burst limits.
 		leClientset, err := kubernetes.NewForConfig(config)
 		if err != nil {
-			return fmt.Errorf("create leaderelection client: %v", err)
+			return fmt.Errorf("create leaderelection client: %w", err)
 		}
 
 		le := leaderelection.New(leClientset, lockName,
@@ -246,7 +252,7 @@ func NewCommand() *cobra.Command {
 			le.PrepareHealthCheck(mux)
 		}
 		if err := le.Run(); err != nil {
-			return fmt.Errorf("leader election failed: %v", err)
+			return fmt.Errorf("leader election failed: %w", err)
 		}
 
 		return nil
@@ -275,10 +281,10 @@ func NewCommand() *cobra.Command {
 		// to know early if there is a setup problem that would prevent
 		// creating those directories.
 		if err := os.MkdirAll(*cdiDir, os.FileMode(0750)); err != nil {
-			return fmt.Errorf("create CDI directory: %v", err)
+			return fmt.Errorf("create CDI directory: %w", err)
 		}
 		if err := os.MkdirAll(filepath.Dir(*endpoint), 0750); err != nil {
-			return fmt.Errorf("create socket directory: %v", err)
+			return fmt.Errorf("create socket directory: %w", err)
 		}
 
 		plugin, err := StartPlugin(logger, *cdiDir, *driverName, "", FileOperations{},
@@ -287,7 +293,7 @@ func NewCommand() *cobra.Command {
 			kubeletplugin.KubeletPluginSocketPath(*draAddress),
 		)
 		if err != nil {
-			return fmt.Errorf("start example plugin: %v", err)
+			return fmt.Errorf("start example plugin: %w", err)
 		}
 
 		// Handle graceful shutdown. We need to delete Unix domain

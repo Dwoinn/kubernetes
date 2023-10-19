@@ -26,12 +26,14 @@ import (
 	apidiscoveryv2beta1 "k8s.io/api/apidiscovery/v2beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apiserver/pkg/authentication/user"
 	"k8s.io/apiserver/pkg/endpoints"
 	discoveryendpoint "k8s.io/apiserver/pkg/endpoints/discovery/aggregated"
 	"k8s.io/apiserver/pkg/endpoints/request"
-	scheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	apiregistrationv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
@@ -43,6 +45,13 @@ var APIRegistrationGroupVersion metav1.GroupVersion = metav1.GroupVersion{Group:
 // Maximum is 20000. Set to higher than that so apiregistration always is listed
 // first (mirrors v1 discovery behavior)
 var APIRegistrationGroupPriority int = 20001
+
+// Aggregated discovery content-type GVK.
+var v2Beta1GVK = schema.GroupVersionKind{
+	Group:   "apidiscovery.k8s.io",
+	Version: "v2beta1",
+	Kind:    "APIGroupDiscoveryList",
+}
 
 // Given a list of APIServices and proxyHandlers for contacting them,
 // DiscoveryManager caches a list of discovery documents for each server
@@ -61,14 +70,10 @@ type DiscoveryAggregationController interface {
 	// Spwans a worker which waits for added/updated apiservices and updates
 	// the unified discovery document by contacting the aggregated api services
 	Run(stopCh <-chan struct{})
-
-	// Returns true if all non-local APIServices that have been added
-	// are synced at least once to the discovery document
-	ExternalServicesSynced() bool
 }
 
 type discoveryManager struct {
-	// Locks `services`
+	// Locks `apiServices`
 	servicesLock sync.RWMutex
 
 	// Map from APIService's name (or a unique string for local servers)
@@ -147,9 +152,6 @@ type groupVersionInfo struct {
 	// was stored, the discovery document will always be re-fetched.
 	lastMarkedDirty time.Time
 
-	// Last time sync function was run for this GV.
-	lastReconciled time.Time
-
 	// ServiceReference of this GroupVersion. This identifies the Service which
 	// describes how to contact the server responsible for this GroupVersion.
 	service serviceKey
@@ -211,7 +213,7 @@ func (dm *discoveryManager) fetchFreshDiscoveryForService(gv metav1.GroupVersion
 		Path:              req.URL.Path,
 		IsResourceRequest: false,
 	}))
-	req.Header.Add("Accept", runtime.ContentTypeJSON+";g=apidiscovery.k8s.io;v=v2beta1;as=APIGroupDiscoveryList")
+	req.Header.Add("Accept", discovery.AcceptV2Beta1)
 
 	if exists && len(cached.etag) > 0 {
 		req.Header.Add("If-None-Match", cached.etag)
@@ -224,8 +226,9 @@ func (dm *discoveryManager) fetchFreshDiscoveryForService(gv metav1.GroupVersion
 	writer := newInMemoryResponseWriter()
 	handler.ServeHTTP(writer, req)
 
-	switch writer.respCode {
-	case http.StatusNotModified:
+	isV2Beta1GVK, _ := discovery.ContentTypeIsGVK(writer.Header().Get("Content-Type"), v2Beta1GVK)
+	switch {
+	case writer.respCode == http.StatusNotModified:
 		// Keep old entry, update timestamp
 		cached = cachedResult{
 			discovery:   cached.discovery,
@@ -235,8 +238,47 @@ func (dm *discoveryManager) fetchFreshDiscoveryForService(gv metav1.GroupVersion
 
 		dm.setCacheEntryForService(info.service, cached)
 		return &cached, nil
-	case http.StatusNotAcceptable:
-		// Discovery Document is not being served at all.
+	case writer.respCode == http.StatusServiceUnavailable:
+		return nil, fmt.Errorf("service %s returned non-success response code: %v",
+			info.service.String(), writer.respCode)
+	case writer.respCode == http.StatusOK && isV2Beta1GVK:
+		parsed := &apidiscoveryv2beta1.APIGroupDiscoveryList{}
+		if err := runtime.DecodeInto(scheme.Codecs.UniversalDecoder(), writer.data, parsed); err != nil {
+			return nil, err
+		}
+
+		klog.V(3).Infof("DiscoveryManager: Successfully downloaded discovery for %s", info.service.String())
+
+		// Convert discovery info into a map for convenient lookup later
+		discoMap := map[metav1.GroupVersion]apidiscoveryv2beta1.APIVersionDiscovery{}
+		for _, g := range parsed.Items {
+			for _, v := range g.Versions {
+				discoMap[metav1.GroupVersion{Group: g.Name, Version: v.Version}] = v
+				for i := range v.Resources {
+					// avoid nil panics in v0.26.0-v0.26.3 client-go clients
+					// see https://github.com/kubernetes/kubernetes/issues/118361
+					if v.Resources[i].ResponseKind == nil {
+						v.Resources[i].ResponseKind = &metav1.GroupVersionKind{}
+					}
+					for j := range v.Resources[i].Subresources {
+						if v.Resources[i].Subresources[j].ResponseKind == nil {
+							v.Resources[i].Subresources[j].ResponseKind = &metav1.GroupVersionKind{}
+						}
+					}
+				}
+			}
+		}
+
+		// Save cached result
+		cached = cachedResult{
+			discovery:   discoMap,
+			etag:        writer.Header().Get("Etag"),
+			lastUpdated: now,
+		}
+		dm.setCacheEntryForService(info.service, cached)
+		return &cached, nil
+	default:
+		// Could not get acceptable response for Aggregated Discovery.
 		// Fall back to legacy discovery information
 		if len(gv.Version) == 0 {
 			return nil, errors.New("not found")
@@ -272,7 +314,7 @@ func (dm *discoveryManager) fetchFreshDiscoveryForService(gv metav1.GroupVersion
 		handler.ServeHTTP(writer, req)
 
 		if writer.respCode != http.StatusOK {
-			return nil, fmt.Errorf("failed to download discovery for %s: %v", path, writer.String())
+			return nil, fmt.Errorf("failed to download legacy discovery for %s: %v", path, writer.String())
 		}
 
 		parsed := &metav1.APIResourceList{}
@@ -285,6 +327,7 @@ func (dm *discoveryManager) fetchFreshDiscoveryForService(gv metav1.GroupVersion
 		if err != nil {
 			return nil, err
 		}
+		klog.V(3).Infof("DiscoveryManager: Successfully downloaded legacy discovery for %s", info.service.String())
 
 		discoMap := map[metav1.GroupVersion]apidiscoveryv2beta1.APIVersionDiscovery{
 			// Convert old-style APIGroupList to new information
@@ -299,40 +342,10 @@ func (dm *discoveryManager) fetchFreshDiscoveryForService(gv metav1.GroupVersion
 			lastUpdated: now,
 		}
 
-		// Save the resolve, because it is still useful in case other services
-		// are already marked dirty. THey can use it without making http request
-		dm.setCacheEntryForService(info.service, cached)
+		// Do not save the resolve as the legacy fallback only fetches
+		// one group version and an API Service may serve multiple
+		// group versions.
 		return &cached, nil
-
-	case http.StatusOK:
-		parsed := &apidiscoveryv2beta1.APIGroupDiscoveryList{}
-		if err := runtime.DecodeInto(scheme.Codecs.UniversalDecoder(), writer.data, parsed); err != nil {
-			return nil, err
-		}
-		klog.V(3).Infof("DiscoveryManager: Successfully downloaded discovery for %s", info.service.String())
-
-		// Convert discovery info into a map for convenient lookup later
-		discoMap := map[metav1.GroupVersion]apidiscoveryv2beta1.APIVersionDiscovery{}
-		for _, g := range parsed.Items {
-			for _, v := range g.Versions {
-				discoMap[metav1.GroupVersion{Group: g.Name, Version: v.Version}] = v
-			}
-		}
-
-		// Save cached result
-		cached = cachedResult{
-			discovery:   discoMap,
-			etag:        writer.Header().Get("Etag"),
-			lastUpdated: now,
-		}
-		dm.setCacheEntryForService(info.service, cached)
-		return &cached, nil
-
-	default:
-		klog.Infof("DiscoveryManager: Failed to download discovery for %v: %v %s",
-			info.service.String(), writer.respCode, writer.data)
-		return nil, fmt.Errorf("service %s returned non-success response code: %v",
-			info.service.String(), writer.respCode)
 	}
 }
 
@@ -350,11 +363,7 @@ func (dm *discoveryManager) syncAPIService(apiServiceName string) error {
 	}
 
 	// Lookup last cached result for this apiservice's service.
-	now := time.Now()
 	cached, err := dm.fetchFreshDiscoveryForService(mgv, info)
-
-	info.lastReconciled = now
-	dm.setInfoForAPIService(apiServiceName, &info)
 
 	var entry apidiscoveryv2beta1.APIVersionDiscovery
 
@@ -432,7 +441,7 @@ func (dm *discoveryManager) Run(stopCh <-chan struct{}) {
 	}
 
 	// Ensure that apiregistration.k8s.io is the first group in the discovery group.
-	dm.mergedDiscoveryHandler.SetGroupVersionPriority(APIRegistrationGroupVersion, APIRegistrationGroupPriority, 0)
+	dm.mergedDiscoveryHandler.WithSource(discoveryendpoint.BuiltinSource).SetGroupVersionPriority(APIRegistrationGroupVersion, APIRegistrationGroupPriority, 0)
 
 	wait.PollUntil(1*time.Minute, func() (done bool, err error) {
 		dm.servicesLock.Lock()
@@ -475,18 +484,6 @@ func (dm *discoveryManager) RemoveAPIService(apiServiceName string) {
 		// mark dirty if there was actually something deleted
 		dm.dirtyAPIServiceQueue.Add(apiServiceName)
 	}
-}
-
-func (dm *discoveryManager) ExternalServicesSynced() bool {
-	dm.servicesLock.RLock()
-	defer dm.servicesLock.RUnlock()
-	for _, info := range dm.apiServices {
-		if info.lastReconciled.IsZero() {
-			return false
-		}
-	}
-
-	return true
 }
 
 //

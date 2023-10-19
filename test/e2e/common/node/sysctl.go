@@ -40,7 +40,7 @@ var _ = SIGDescribe("Sysctls [LinuxOnly] [NodeConformance]", func() {
 	})
 
 	f := framework.NewDefaultFramework("sysctl")
-	f.NamespacePodSecurityEnforceLevel = admissionapi.LevelPrivileged
+	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
 	var podClient *e2epod.PodClient
 
 	testPod := func() *v1.Pod {
@@ -104,7 +104,7 @@ var _ = SIGDescribe("Sysctls [LinuxOnly] [NodeConformance]", func() {
 		framework.ExpectNoError(err)
 
 		ginkgo.By("Checking that the pod succeeded")
-		framework.ExpectEqual(pod.Status.Phase, v1.PodSucceeded)
+		gomega.Expect(pod.Status.Phase).To(gomega.Equal(v1.PodSucceeded))
 
 		ginkgo.By("Getting logs from the pod")
 		log, err := e2epod.GetPodLogs(ctx, f.ClientSet, f.Namespace.Name, pod.Name, pod.Spec.Containers[0].Name)
@@ -148,11 +148,12 @@ var _ = SIGDescribe("Sysctls [LinuxOnly] [NodeConformance]", func() {
 		client := f.ClientSet.CoreV1().Pods(f.Namespace.Name)
 		_, err := client.Create(ctx, pod, metav1.CreateOptions{})
 
-		gomega.Expect(err).NotTo(gomega.BeNil())
-		gomega.Expect(err.Error()).To(gomega.ContainSubstring(`Invalid value: "foo-"`))
-		gomega.Expect(err.Error()).To(gomega.ContainSubstring(`Invalid value: "bar.."`))
-		gomega.Expect(err.Error()).NotTo(gomega.ContainSubstring(`safe-and-unsafe`))
-		gomega.Expect(err.Error()).NotTo(gomega.ContainSubstring("kernel.shmmax"))
+		gomega.Expect(err).To(gomega.MatchError(gomega.SatisfyAll(
+			gomega.ContainSubstring(`Invalid value: "foo-"`),
+			gomega.ContainSubstring(`Invalid value: "bar.."`),
+			gomega.Not(gomega.ContainSubstring(`safe-and-unsafe`)),
+			gomega.Not(gomega.ContainSubstring("kernel.shmmax")),
+		)))
 	})
 
 	// Pod is created with kernel.msgmax, an unsafe sysctl.
@@ -212,7 +213,7 @@ var _ = SIGDescribe("Sysctls [LinuxOnly] [NodeConformance]", func() {
 		framework.ExpectNoError(err)
 
 		ginkgo.By("Checking that the pod succeeded")
-		framework.ExpectEqual(pod.Status.Phase, v1.PodSucceeded)
+		gomega.Expect(pod.Status.Phase).To(gomega.Equal(v1.PodSucceeded))
 
 		ginkgo.By("Getting logs from the pod")
 		log, err := e2epod.GetPodLogs(ctx, f.ClientSet, f.Namespace.Name, pod.Name, pod.Spec.Containers[0].Name)
